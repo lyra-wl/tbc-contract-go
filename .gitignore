@@ -1,0 +1,9 @@
+.gomodcache/
+contract.test
+*.test
+.idea/
+.vscode/
+*.exe
+*.dll
+*.so
+*.dylib

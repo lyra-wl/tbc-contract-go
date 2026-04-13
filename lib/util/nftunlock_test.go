@@ -1,0 +1,44 @@
+package util
+
+import (
+	"encoding/hex"
+	"testing"
+
+	"github.com/sCrypt-Inc/go-bt/v2"
+	"github.com/sCrypt-Inc/go-bt/v2/bscript"
+)
+
+func TestGetNFTCurrentVsV0(t *testing.T) {
+	tx := bt.NewTx()
+	tx.Version = 10
+	script, _ := bscript.NewFromHexString("76a914" + "11" + "88ac")
+	tx.AddOutput(&bt.Output{Satoshis: 100, LockingScript: script})
+	tx.AddOutput(&bt.Output{Satoshis: 200, LockingScript: script})
+
+	cur, err := GetNFTCurrentTxdata(tx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	curV0, err := GetNFTCurrentTxdataV0(tx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cur == curV0 {
+		t.Fatal("current and v0 txdata should differ")
+	}
+	if _, err := hex.DecodeString(cur); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestNftAppendOutputsDataThroughCurrent(t *testing.T) {
+	tx := bt.NewTx()
+	tx.AddOutput(&bt.Output{Satoshis: 1, LockingScript: bscript.NewFromBytes([]byte{0x01})})
+	h, err := GetNFTCurrentTxdata(tx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := hex.DecodeString(h); err != nil {
+		t.Fatal(err)
+	}
+}

@@ -1,0 +1,238 @@
+package api
+
+import (
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
+	"math/big"
+
+	"github.com/libsv/go-bk/crypto"
+	bt "github.com/sCrypt-Inc/go-bt/v2"
+	"github.com/sCrypt-Inc/go-bt/v2/bscript"
+)
+
+type PoolNFTInfo struct {
+	FtLpAmount             string `json:"ft_lp_amount"`
+	FtAAmount              string `json:"ft_a_amount"`
+	TBCAmount              string `json:"tbc_amount"`
+	FtLpPartialHash        string `json:"ft_lp_partialhash"`
+	FtAPartialHash         string `json:"ft_a_partialhash"`
+	FtAContractTxID        string `json:"ft_a_contractTxid"`
+	ServiceFeeRate         string `json:"service_fee_rate"`
+	ServiceProvider        string `json:"service_provider"`
+	PoolNftCode            string `json:"poolnft_code"`
+	PoolVersion            int    `json:"pool_version"`
+	CurrentContractTxID    string `json:"currentContractTxid"`
+	CurrentContractVout    int    `json:"currentContractVout"`
+	CurrentContractSatoshi uint64 `json:"currentContractSatoshi"`
+}
+
+type LpUTXO struct {
+	TxID      string `json:"txId"`
+	Vout      uint32 `json:"outputIndex"`
+	Script    string `json:"script"`
+	Satoshis  uint64 `json:"satoshis"`
+	FtBalance string `json:"ftBalance"`
+}
+
+type poolNftInfoRaw struct {
+	Data struct {
+		LpBalance       json.RawMessage `json:"lp_balance"`
+		TokenBalance    json.RawMessage `json:"token_balance"`
+		TBCBalance      json.RawMessage `json:"tbc_balance"`
+		FtLpPartialHash string          `json:"ft_lp_partial_hash"`
+		FtAPartialHash  string          `json:"ft_a_partial_hash"`
+		FtContractID    string          `json:"ft_contract_id"`
+		ServiceFeeRate  string          `json:"service_fee_rate"`
+		ServiceProvider string          `json:"service_provider"`
+		PoolCodeScript  string          `json:"pool_code_script"`
+		Version         int             `json:"version"`
+		TxID            string          `json:"txid"`
+		Vout            int             `json:"vout"`
+		Value           uint64          `json:"value"`
+	} `json:"data"`
+}
+
+type lpUtxoRaw struct {
+	TxID       string          `json:"txid"`
+	Index      int             `json:"index"`
+	TBCBalance uint64          `json:"tbc_balance"`
+	LpBalance  json.RawMessage `json:"lp_balance"`
+}
+
+type lpUtxoListResponse struct {
+	Data struct {
+		UTXOs []lpUtxoRaw `json:"utxos"`
+	} `json:"data"`
+}
+
+func scriptHashFromHex(scriptHex string) (string, error) {
+	b, err := hex.DecodeString(scriptHex)
+	if err != nil {
+		return "", err
+	}
+	h := crypto.Sha256(b)
+	return hex.EncodeToString(bt.ReverseBytes(h)), nil
+}
+
+func FetchPoolNFTInfo(contractTxID, network string) (*PoolNFTInfo, error) {
+	baseURL := getBaseURL(network)
+	url := fmt.Sprintf("%spool/poolinfo/poolid/%s", baseURL, contractTxID)
+
+	resp, err := defaultHTTPClient.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var r poolNftInfoRaw
+	if err := json.Unmarshal(body, &r); err != nil {
+		return nil, fmt.Errorf("解析 Pool NFT Info 失败: %w", err)
+	}
+
+	lpStr, _ := parseBigIntOrUint64(r.Data.LpBalance)
+	tokenStr, _ := parseBigIntOrUint64(r.Data.TokenBalance)
+	tbcStr, _ := parseBigIntOrUint64(r.Data.TBCBalance)
+
+	return &PoolNFTInfo{
+		FtLpAmount:             lpStr,
+		FtAAmount:              tokenStr,
+		TBCAmount:              tbcStr,
+		FtLpPartialHash:        r.Data.FtLpPartialHash,
+		FtAPartialHash:         r.Data.FtAPartialHash,
+		FtAContractTxID:        r.Data.FtContractID,
+		ServiceFeeRate:         r.Data.ServiceFeeRate,
+		ServiceProvider:        r.Data.ServiceProvider,
+		PoolNftCode:            r.Data.PoolCodeScript,
+		PoolVersion:            r.Data.Version,
+		CurrentContractTxID:    r.Data.TxID,
+		CurrentContractVout:    r.Data.Vout,
+		CurrentContractSatoshi: r.Data.Value,
+	}, nil
+}
+
+func FetchPoolNFTUTXO(contractTxID, network string) (*bt.UTXO, error) {
+	info, err := FetchPoolNFTInfo(contractTxID, network)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to fetch PoolNFT UTXO.: %w", err)
+	}
+	script, err := bscript.NewFromHexString(info.PoolNftCode)
+	if err != nil {
+		return nil, err
+	}
+	txidBytes, err := hex.DecodeString(info.CurrentContractTxID)
+	if err != nil {
+		return nil, err
+	}
+	return &bt.UTXO{
+		TxID:          txidBytes,
+		Vout:          uint32(info.CurrentContractVout),
+		Satoshis:      info.CurrentContractSatoshi,
+		LockingScript: script,
+	}, nil
+}
+
+func FetchFtLpBalance(ftlpCode, network string) (string, error) {
+	hash, err := scriptHashFromHex(ftlpCode)
+	if err != nil {
+		return "", err
+	}
+	baseURL := getBaseURL(network)
+	url := fmt.Sprintf("%spool/lputxo/scriptpubkeyhash/%s", baseURL, hash)
+
+	resp, err := defaultHTTPClient.Get(url)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	var r lpUtxoListResponse
+	if err := json.Unmarshal(body, &r); err != nil {
+		return "", err
+	}
+
+	sum := new(big.Int)
+	for _, u := range r.Data.UTXOs {
+		s, _ := parseBigIntOrUint64(u.LpBalance)
+		b, _ := new(big.Int).SetString(s, 10)
+		if b != nil {
+			sum.Add(sum, b)
+		}
+	}
+	return sum.String(), nil
+}
+
+func FetchFtLpUTXO(ftlpCode, network string, amount *big.Int) (*LpUTXO, error) {
+	hash, err := scriptHashFromHex(ftlpCode)
+	if err != nil {
+		return nil, err
+	}
+	baseURL := getBaseURL(network)
+	url := fmt.Sprintf("%spool/lputxo/scriptpubkeyhash/%s", baseURL, hash)
+
+	resp, err := defaultHTTPClient.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+
+	var r lpUtxoListResponse
+	if err := json.Unmarshal(body, &r); err != nil {
+		return nil, err
+	}
+	if len(r.Data.UTXOs) == 0 {
+		return nil, fmt.Errorf("Insufficient FT-LP amount")
+	}
+
+	var selected lpUtxoRaw
+	for i := range r.Data.UTXOs {
+		lpStr, _ := parseBigIntOrUint64(r.Data.UTXOs[i].LpBalance)
+		lb, _ := new(big.Int).SetString(lpStr, 10)
+		if lb != nil && lb.Cmp(amount) >= 0 {
+			selected = r.Data.UTXOs[i]
+			break
+		}
+		selected = r.Data.UTXOs[i]
+	}
+
+	lpStr, _ := parseBigIntOrUint64(selected.LpBalance)
+	lb, _ := new(big.Int).SetString(lpStr, 10)
+	if lb == nil || lb.Cmp(amount) < 0 {
+		sum := new(big.Int)
+		for i := range r.Data.UTXOs {
+			s, _ := parseBigIntOrUint64(r.Data.UTXOs[i].LpBalance)
+			b, _ := new(big.Int).SetString(s, 10)
+			if b != nil {
+				sum.Add(sum, b)
+			}
+		}
+		if sum.Cmp(amount) < 0 {
+			return nil, fmt.Errorf("Insufficient FT-LP amount")
+		}
+		return nil, fmt.Errorf("Please merge FT-LP UTXOs")
+	}
+
+	return &LpUTXO{
+		TxID:      selected.TxID,
+		Vout:      uint32(selected.Index),
+		Script:    ftlpCode,
+		Satoshis:  selected.TBCBalance,
+		FtBalance: lpStr,
+	}, nil
+}

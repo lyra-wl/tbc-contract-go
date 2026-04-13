@@ -4,10 +4,54 @@ import (
 	"encoding/hex"
 	"errors"
 	"math/big"
+	"regexp"
+	"strings"
 
 	"github.com/sCrypt-Inc/go-bt/v2"
 	"github.com/sCrypt-Inc/go-bt/v2/bscript"
 )
+
+var reSHA256Hex = regexp.MustCompile(`^[0-9a-fA-F]{64}$`)
+var reHex = regexp.MustCompile(`^[0-9a-fA-F]+$`)
+
+// ParseDecimalToBigInt 与 tbc-contract/lib/util parseDecimalToBigInt 一致
+func ParseDecimalToBigInt(amount string, decimal int) *big.Int {
+	s := strings.TrimSpace(amount)
+	parts := strings.SplitN(s, ".", 2)
+	intPart := parts[0]
+	if intPart == "" {
+		intPart = "0"
+	}
+	frac := ""
+	if len(parts) > 1 {
+		frac = parts[1]
+	}
+	for len(frac) < decimal {
+		frac += "0"
+	}
+	if len(frac) > decimal {
+		frac = frac[:decimal]
+	}
+	combined := intPart + frac
+	n := new(big.Int)
+	if _, ok := n.SetString(combined, 10); !ok {
+		return big.NewInt(0)
+	}
+	return n
+}
+
+// IsValidSHA256Hash 对应 util._isValidSHA256Hash
+func IsValidSHA256Hash(s string) bool {
+	return reSHA256Hex.MatchString(s)
+}
+
+// IsValidHexString 对应 util._isValidHexString
+func IsValidHexString(s string) bool {
+	if s == "" {
+		return false
+	}
+	return reHex.MatchString(s)
+}
 
 var (
 	ErrOutputNotExist       = errors.New("output at index does not exist")
@@ -70,13 +114,15 @@ func BuildFtPrePreTxData(preTX *bt.Tx, preTxVout int, localTXs []*bt.Tx) (string
 			if inputIndex >= len(preTX.Inputs) {
 				return "", ErrInputIndexOutOfRange
 			}
-			prevTxID := hex.EncodeToString(bt.ReverseBytes(preTX.Inputs[inputIndex].PreviousTxID()))
+			// 与 Tx.TxID() / 浏览器 txid 一致，与 api.FetchFtPrePreTxData 中 FetchTXRaw 所用格式一致
+			prevTxID := hex.EncodeToString(preTX.Inputs[inputIndex].PreviousTxID())
 			prepreTX := SelectTXFromLocal(localTXs, prevTxID)
 			data, err := bt.GetPrePreTxdata(prepreTX, int(preTX.Inputs[inputIndex].PreviousTxOutIndex))
 			if err != nil {
 				return "", err
 			}
-			prepretxdata = data + prepretxdata
+			// 与 tbc-contract/lib/util/util.ts buildFtPrePreTxData 及 api.fetchFtPrePreTxData 一致：append 拼接（勿 prepend）。
+			prepretxdata += data
 		}
 	}
 	return "57" + prepretxdata, nil

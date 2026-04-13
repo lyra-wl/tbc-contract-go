@@ -5,17 +5,30 @@ package contract
 import (
 	"encoding/hex"
 	"math/big"
+	"os"
 	"strings"
 	"testing"
 
-	"github.com/sCrypt-Inc/go-bt/v2"
+	bt "github.com/sCrypt-Inc/go-bt/v2"
 	"github.com/sCrypt-Inc/go-bt/v2/bscript"
+	"github.com/sCrypt-Inc/tbc-contract-go/lib/api"
 	"github.com/sCrypt-Inc/tbc-contract-go/lib/util"
 )
 
+// readRequiredEnv 读取必填环境变量，用于真实链上参数测试。
+func readRequiredEnv(t *testing.T, key string) string {
+	t.Helper()
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		t.Skipf("skip real-chain test: env %s is empty", key)
+	}
+	return v
+}
+
 // TestNewFT_FromTxid 测试从 txid 创建 FT
 func TestNewFT_FromTxid(t *testing.T) {
-	txid := "abc123def4567890123456789012345678901234567890123456789012345678"
+	// 这里是构造参数测试，不依赖真实链上交易。
+	txid := strings.Repeat("a", 64)
 	ft, err := NewFT(txid)
 	if err != nil {
 		t.Fatalf("NewFT(txid) failed: %v", err)
@@ -67,7 +80,7 @@ func TestNewFT_InvalidParams(t *testing.T) {
 			if err == nil {
 				t.Fatal("expected error")
 			}
-			if err != nil && tt.want != "" && !strings.Contains(err.Error(), tt.want) {
+			if tt.want != "" && !strings.Contains(err.Error(), tt.want) {
 				t.Errorf("error %q does not contain %q", err.Error(), tt.want)
 			}
 		})
@@ -75,11 +88,11 @@ func TestNewFT_InvalidParams(t *testing.T) {
 }
 
 // TestInitialize 测试 Initialize（对应 ft.md Transfer 中的 Token.initialize(TokenInfo)）
-// TokenInfo 来自 API.fetchFtInfo，对应 bt.FetchFtInfo 返回的 *bt.FtInfo
+// TokenInfo 来自 API.fetchFtInfo，对应 api.FetchFtInfo 返回的 *api.FtInfo
 func TestInitialize(t *testing.T) {
 	ft, _ := NewFT("txid123")
-	// 模拟 bt.FetchFtInfo 返回的 FtInfo 结构
-	apiInfo := &bt.FtInfo{
+	// 模拟 api.FetchFtInfo 返回的 FtInfo 结构
+	apiInfo := &api.FtInfo{
 		Name:        "MyToken",
 		Symbol:      "MTK",
 		Decimal:     8,
@@ -111,8 +124,8 @@ func TestInitialize(t *testing.T) {
 // TestBuildTapeAmount 测试 BuildTapeAmount（对应 ft.md 中的 amount/change 计算）
 func TestBuildTapeAmount(t *testing.T) {
 	tests := []struct {
-		name         string
-		amount       *big.Int
+		name          string
+		amount        *big.Int
 		tapeAmountSet []*big.Int
 	}{
 		{
@@ -183,6 +196,54 @@ func TestBuildFTtransferCode(t *testing.T) {
 	}
 }
 
+// TestMintCodeSecondLastChunkIsRecipient21 验证 mint 模板解析后「倒数第二个 chunk」为 21 字节 recipient（与 JS chunks[length-2] 一致）。
+// 若此处不是 21 字节，BuildFTtransferCode 会改错位置，导致链上 OP_EQUALVERIFY 失败（如 mode 字节变成 hash 首字节）。
+func TestMintCodeSecondLastChunkIsRecipient21(t *testing.T) {
+	txid := strings.Repeat("ab", 32)
+	addr := "1FhSD1YezTXbdRGWzNbNvUj6qeKQ6gZDMq"
+	s, err := getFTmintCode(txid, 0, addr, 51)
+	if err != nil {
+		t.Fatalf("getFTmintCode: %v", err)
+	}
+	chunks := s.Chunks()
+	n := len(chunks)
+	if n < 2 {
+		t.Fatalf("chunks=%d", n)
+	}
+	ti := n - 2
+	c := chunks[ti]
+	last := chunks[n-1]
+	t.Logf("mint code: bytes=%d chunk_count=%d second_last idx=%d buf_len=%v last_opcode=%d",
+		len(s.Bytes()), n, ti, func() interface{} {
+			if c.Buf == nil {
+				return nil
+			}
+			return len(c.Buf)
+		}(), last.OpcodeNum)
+	// 与 tbc-contract JS getFTmintCode 输出对照：FROMALTSTACK→OP_1→SPLIT→NIP→push(20)→SPLIT 段须一致
+	const wantFromAltRecipientPrefix = "6c517f7701147f517f75817600876375"
+	h := hex.EncodeToString(s.Bytes())
+	if idx := strings.Index(h, "6c517f77"); idx < 0 || !strings.HasPrefix(h[idx:], wantFromAltRecipientPrefix) {
+		tail := ""
+		if idx >= 0 {
+			tail = h[idx:]
+			if len(tail) > len(wantFromAltRecipientPrefix) {
+				tail = tail[:len(wantFromAltRecipientPrefix)]
+			}
+		}
+		t.Fatalf("mint code recipient-parse prefix mismatch: idx=%d have=%q want prefix %q", idx, tail, wantFromAltRecipientPrefix)
+	}
+	if c.Buf == nil {
+		t.Fatal("second-to-last chunk has nil buf")
+	}
+	if len(c.Buf) != 21 {
+		t.Fatalf("second-to-last chunk buf len=%d want 21", len(c.Buf))
+	}
+	if c.Buf[0] != 0x00 {
+		t.Fatalf("recipient mode byte = %02x want 00 (address)", c.Buf[0])
+	}
+}
+
 // TestBuildFTtransferTape 测试 BuildFTtransferTape（对应 ft.md 中的 tape 构建）
 // 使用 bscript.Script 验证输出
 func TestBuildFTtransferTape(t *testing.T) {
@@ -190,7 +251,7 @@ func TestBuildFTtransferTape(t *testing.T) {
 	// 最小有效 tape: 51 字节 = 102 hex 字符
 	amountBytes := make([]byte, 48)
 	amountBytes[0] = 0xe8
-	amountBytes[1] = 0x03 // 1000 in LE
+	amountBytes[1] = 0x03                                         // 1000 in LE
 	tapeBytes := append([]byte{0x00, 0x6a, 0x30}, amountBytes...) // 00 6a 30 + 48 bytes
 	tapeHex := hex.EncodeToString(tapeBytes)
 
@@ -285,5 +346,79 @@ func TestBuildUTXO_FromTx(t *testing.T) {
 	}
 	if u.FtBalance != "0" {
 		t.Errorf("non-FT FtBalance = %q, want \"0\"", u.FtBalance)
+	}
+}
+
+// TestRealChainFT_ManualParams 使用手动配置的真实链上参数做集成测试。
+//
+// 使用方法（示例）:
+//
+//	REAL_CHAIN_FT_TXID=<真实合约txid> \
+//	REAL_CHAIN_FT_NAME=<真实token名称> \
+//	REAL_CHAIN_FT_SYMBOL=<真实token符号> \
+//	REAL_CHAIN_FT_DECIMAL=<真实token小数位> \
+//	go test ./lib/contract -run TestRealChainFT_ManualParams -v
+//
+// 说明:
+// - 默认未设置环境变量时会自动 Skip，不影响普通单元测试。
+// - 该用例不发起交易广播，仅校验“手动真实参数”与初始化后的对象一致。
+func TestRealChainFT_ManualParams(t *testing.T) {
+	txid := readRequiredEnv(t, "REAL_CHAIN_FT_TXID")
+	name := readRequiredEnv(t, "REAL_CHAIN_FT_NAME")
+	symbol := readRequiredEnv(t, "REAL_CHAIN_FT_SYMBOL")
+	decimalStr := readRequiredEnv(t, "REAL_CHAIN_FT_DECIMAL")
+
+	decimal := 0
+	for _, ch := range decimalStr {
+		if ch < '0' || ch > '9' {
+			t.Fatalf("REAL_CHAIN_FT_DECIMAL must be number, got %q", decimalStr)
+		}
+		decimal = decimal*10 + int(ch-'0')
+	}
+	if decimal < 1 || decimal > 18 {
+		t.Fatalf("REAL_CHAIN_FT_DECIMAL must be in [1,18], got %d", decimal)
+	}
+
+	ft, err := NewFT(txid)
+	if err != nil {
+		t.Fatalf("NewFT(txid) failed: %v", err)
+	}
+
+	// Name/Symbol/Decimal 来自你手动填入的真实链上信息（例如区块浏览器或 API 返回）。
+	info := &FtInfo{
+		Name:        name,
+		Symbol:      symbol,
+		Decimal:     decimal,
+		TotalSupply: 0,
+		CodeScript:  "",
+		TapeScript:  "",
+	}
+	ft.Initialize(info)
+
+	if ft.ContractTxid != txid {
+		t.Fatalf("ContractTxid mismatch: got %q, want %q", ft.ContractTxid, txid)
+	}
+	if ft.Name != name || ft.Symbol != symbol || ft.Decimal != decimal {
+		t.Fatalf("real params mismatch: got (%s,%s,%d), want (%s,%s,%d)",
+			ft.Name, ft.Symbol, ft.Decimal, name, symbol, decimal)
+	}
+}
+
+// TestGetFTmintCode_embedsModeBeforePkh 与 JS FT.getFTmintCode 一致：recipient 为 21 字节 mode||pkh（地址模式为 00||pkh）。
+func TestGetFTmintCode_embedsModeBeforePkh(t *testing.T) {
+	txid := strings.Repeat("ab", 32)
+	const addr = "143KgKGcse57nXBnXyJwtQrf2KP4KWto59"
+	code, err := getFTmintCode(txid, 0, addr, 138)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw := hex.EncodeToString(code.Bytes())
+	a, err := bscript.NewAddressFromString(addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "00" + a.PublicKeyHash
+	if !strings.Contains(raw, want) {
+		t.Fatalf("mint code 应嵌入 00||pkh，未找到 %s...", want[:12])
 	}
 }

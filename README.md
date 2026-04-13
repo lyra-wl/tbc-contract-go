@@ -39,7 +39,7 @@ ft, err := contract.NewFT(&contract.FtParams{
 ### 初始化
 
 ```go
-info, _ := bt.FetchFtInfo(contractTxID, network)
+info, _ := api.FetchFtInfo(contractTxID, network)
 ft.Initialize(&contract.FtInfo{
     Name:        info.Name,
     Symbol:      info.Symbol,
