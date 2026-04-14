@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/libsv/go-bk/bec"
+	"github.com/libsv/go-bk/crypto"
 	bt "github.com/sCrypt-Inc/go-bt/v2"
 	"github.com/sCrypt-Inc/go-bt/v2/bscript"
 	"github.com/sCrypt-Inc/go-bt/v2/sighash"
@@ -142,7 +143,10 @@ func (f *FT) MintFT(privKey *bec.PrivateKey, addressTo string, utxo *bt.UTXO) ([
 
 	txSourceRaw := hex.EncodeToString(txSource.Bytes())
 
-	codeScript, err := getFTmintCode(txSource.TxID(), 0, addressTo, tapeSize)
+	// 与 ft.ts getFTmintCode(txSource.hash, 0, …) 对齐：JS 的 hash 即 Transaction 展示用 txid
+	//（v10：sha256d(newTxHeader) 后字节反序再 hex），与 (*bt.Tx).TxID() 相同，勿与「未反序的哈希」混淆。
+	sourceTxHash := mintSourceTxHash(txSource)
+	codeScript, err := getFTmintCode(sourceTxHash, 0, addressTo, tapeSize)
 	if err != nil {
 		return nil, err
 	}
@@ -150,10 +154,29 @@ func (f *FT) MintFT(privKey *bec.PrivateKey, addressTo string, utxo *bt.UTXO) ([
 	f.TapeScript = hex.EncodeToString(tapeScript.Bytes())
 
 	txMint := newFTTx()
-	_ = txMint.From(txSource.TxID(), 0, sourceOutputScript.String(), 9900)
+	_ = txMint.From(sourceTxHash, 0, sourceOutputScript.String(), 9900)
 	txMint.AddOutput(&bt.Output{LockingScript: codeScript, Satoshis: 500})
 	txMint.AddOutput(&bt.Output{LockingScript: tapeScript, Satoshis: 0})
-	_ = txMint.ChangeToAddress(addr.AddressString, feeQuote)
+
+	changeScript, err := bscript.NewP2PKHFromAddress(addr.AddressString)
+	if err != nil {
+		return nil, err
+	}
+	txMint.AddOutput(&bt.Output{LockingScript: changeScript, Satoshis: 0})
+
+	if err := signP2PKHInput(txMint, privKey, 0); err != nil {
+		return nil, err
+	}
+
+	mintActualBytes := len(txMint.Bytes())
+	mintTargetFee := int(math.Ceil(float64(mintActualBytes) * float64(satPerKB) / 1000.0))
+	mintInputSat := int(9900)
+	mintNonChangeSat := int(txMint.Outputs[0].Satoshis + txMint.Outputs[1].Satoshis)
+	mintChangeSat := mintInputSat - mintNonChangeSat - mintTargetFee
+	if mintChangeSat < 0 {
+		mintChangeSat = 0
+	}
+	txMint.Outputs[len(txMint.Outputs)-1].Satoshis = uint64(mintChangeSat)
 
 	if err := signP2PKHInput(txMint, privKey, 0); err != nil {
 		return nil, err
@@ -192,7 +215,27 @@ func (f *FT) RebuildMintTxRawWithBroadcastSource(privKey *bec.PrivateKey, addres
 	_ = txMint.From(sourceTxid, 0, sourceOutputScript.String(), sourceOutputSats)
 	txMint.AddOutput(&bt.Output{LockingScript: codeScript, Satoshis: 500})
 	txMint.AddOutput(&bt.Output{LockingScript: tapeScript, Satoshis: 0})
-	_ = txMint.ChangeToAddress(addr.AddressString, newFeeQuote80())
+
+	changeScript, err := bscript.NewP2PKHFromAddress(addr.AddressString)
+	if err != nil {
+		return "", err
+	}
+	txMint.AddOutput(&bt.Output{LockingScript: changeScript, Satoshis: 0})
+
+	if err := signP2PKHInput(txMint, privKey, 0); err != nil {
+		return "", err
+	}
+
+	satPerKB := feeSatPerKBFromEnv()
+	mintActualBytes := len(txMint.Bytes())
+	mintTargetFee := int(math.Ceil(float64(mintActualBytes) * float64(satPerKB) / 1000.0))
+	mintInputSat := int(sourceOutputSats)
+	mintNonChangeSat := int(txMint.Outputs[0].Satoshis + txMint.Outputs[1].Satoshis)
+	mintChangeSat := mintInputSat - mintNonChangeSat - mintTargetFee
+	if mintChangeSat < 0 {
+		mintChangeSat = 0
+	}
+	txMint.Outputs[len(txMint.Outputs)-1].Satoshis = uint64(mintChangeSat)
 
 	if err := signP2PKHInput(txMint, privKey, 0); err != nil {
 		return "", err
@@ -440,14 +483,43 @@ func (f *FT) BatchTransfer(privKey *bec.PrivateKey, receiveAddressAmount []Addre
 			tx.AddOutput(&bt.Output{LockingScript: changeTape, Satoshis: 0})
 		}
 
-		feeQuote := newFeeQuote80()
-		_ = tx.ChangeToAddress(addressFrom, feeQuote)
+		changeScript, err := bscript.NewP2PKHFromAddress(addressFrom)
+		if err != nil {
+			return nil, fmt.Errorf("NewP2PKHFromAddress for batch change: %w", err)
+		}
+		inputTotal := tx.TotalInputSatoshis()
+		outputTotal := tx.TotalOutputSatoshis()
+		if inputTotal <= outputTotal {
+			return nil, fmt.Errorf("insufficient input satoshis in batch: in=%d out=%d", inputTotal, outputTotal)
+		}
+		tx.AddOutput(&bt.Output{LockingScript: changeScript, Satoshis: inputTotal - outputTotal})
 
+		satPerKB := feeSatPerKBFromEnv()
 		nFt := 0
 		if i == 0 {
 			nFt = len(currentFtutxos)
 		} else {
 			nFt = 1
+		}
+
+		ftUnlockLens := make([]int, nFt)
+		if i == 0 {
+			for j := 0; j < nFt; j++ {
+				us, err := f.getFTunlock(privKey, tx, currentPreTXs[j], currentPrepreTxDatas[j], j, int(currentFtutxos[j].Vout))
+				if err != nil {
+					return nil, fmt.Errorf("probe batch FT unlock length input %d: %w", j, err)
+				}
+				ftUnlockLens[j] = us.Len()
+			}
+		} else {
+			us, err := f.getFTunlock(privKey, tx, currentPreTXs[0], currentPrepreTxDatas[0], 0, 2)
+			if err != nil {
+				return nil, fmt.Errorf("probe batch FT unlock length: %w", err)
+			}
+			ftUnlockLens[0] = us.Len()
+		}
+		if err := adjustFTTransferChangeFee(tx, satPerKB, nFt, ftUnlockLens); err != nil {
+			return nil, fmt.Errorf("adjustFTTransferChangeFee batch iter %d: %w", i, err)
 		}
 
 		// Sign fee inputs (P2PKH) first
@@ -686,12 +758,33 @@ func (f *FT) mergeFTSingle(privKey *bec.PrivateKey, ftutxos []*bt.FtUTXO,
 	tapeScript := BuildFTtransferTape(f.TapeScript, amountHex)
 	tx.AddOutput(&bt.Output{LockingScript: tapeScript, Satoshis: 0})
 
-	feeQuote := newFeeQuote80()
-	_ = tx.ChangeToAddress(addressFrom, feeQuote)
+	changeScript, err := bscript.NewP2PKHFromAddress(addressFrom)
+	if err != nil {
+		return nil, fmt.Errorf("NewP2PKHFromAddress for merge change: %w", err)
+	}
+	inputTotal := tx.TotalInputSatoshis()
+	outputTotal := tx.TotalOutputSatoshis()
+	if inputTotal <= outputTotal {
+		return nil, fmt.Errorf("insufficient input satoshis in merge: in=%d out=%d", inputTotal, outputTotal)
+	}
+	tx.AddOutput(&bt.Output{LockingScript: changeScript, Satoshis: inputTotal - outputTotal})
 
 	nFt := len(ftutxos)
 	if nFt > 5 {
 		nFt = 5
+	}
+
+	satPerKB := feeSatPerKBFromEnv()
+	ftUnlockLens := make([]int, nFt)
+	for j := 0; j < nFt; j++ {
+		us, probeErr := f.getFTunlock(privKey, tx, preTXs[j], prepreTxDatas[j], j, int(ftutxos[j].Vout))
+		if probeErr != nil {
+			return nil, fmt.Errorf("probe merge FT unlock length input %d: %w", j, probeErr)
+		}
+		ftUnlockLens[j] = us.Len()
+	}
+	if err := adjustFTTransferChangeFee(tx, satPerKB, nFt, ftUnlockLens); err != nil {
+		return nil, fmt.Errorf("adjustFTTransferChangeFee merge: %w", err)
 	}
 
 	ctx := context.Background()
@@ -928,7 +1021,7 @@ func (f *FT) getFTunlock(privKey *bec.PrivateKey, tx *bt.Tx, preTX *bt.Tx, prepr
 	return unlockScript, nil
 }
 
-func (f *FT) getFTunlockSwap(privKey *bec.PrivateKey, currentTX *bt.Tx, preTX *bt.Tx, prepreTxData string, contractTX *bt.Tx, currentUnlockIndex int, preTxVout int, ftVersion int) (*bscript.Script, error) {
+func (f *FT) getFTunlockSwap(privKey *bec.PrivateKey, currentTX *bt.Tx, preTX *bt.Tx, prepreTxData string, contractTX *bt.Tx, currentUnlockIndex int, preTxVout int, ftVersion int, isCoin ...bool) (*bscript.Script, error) {
 	pretxdata, err := bt.GetPreTxdata(preTX, preTxVout)
 	if err != nil {
 		return nil, err
@@ -964,7 +1057,11 @@ func (f *FT) getFTunlockSwap(privKey *bec.PrivateKey, currentTX *bt.Tx, preTX *b
 	pubKey := privKey.PubKey().SerialiseCompressed()
 	pubKeyHex := fmt.Sprintf("%02x%s", len(pubKey), hex.EncodeToString(pubKey))
 
-	unlockHex := currenttxdata + prepreTxData + sigHex + pubKeyHex + currentinputsdata + contractTxData + pretxdata
+	coinFlag := ""
+	if len(isCoin) > 0 && isCoin[0] {
+		coinFlag = "51"
+	}
+	unlockHex := currenttxdata + prepreTxData + sigHex + pubKeyHex + currentinputsdata + contractTxData + coinFlag + pretxdata
 	return bscript.NewFromHexString(unlockHex)
 }
 
@@ -1166,6 +1263,16 @@ func strip0xHexPushesInASM(asm string) string {
 	return strings.Join(parts, " ")
 }
 
+// mintSourceTxHash 返回与 tbc-contract/lib/contract/ft.ts 中 MintFT 使用的 txSource.hash 相同的字符串。
+//
+// tbc-lib-js：Transaction.prototype.hash 对 _getHash()（v10 为 Hash.sha256sha256(newTxHeader)）做 readReverse 后转 hex。
+// go-bt/v2：(*Tx).TxID() 对 crypto.Sha256d(newTxHeader()) 做 ReverseBytes 后转 hex。
+// 二者均为 Bitcoin 约定下的「展示用 txid」，与区块浏览器 / RPC 的 txid 字段一致，可直接传入 getFTmintCode。
+func mintSourceTxHash(tx *bt.Tx) string {
+	return tx.TxID()
+}
+
+// getFTmintCode 构建铸造用 code 脚本。txid 必须为上述展示用 txid（与 JS getFTmintCode 第一个参数一致）。
 func getFTmintCode(txid string, vout int, address string, tapeSize int) (*bscript.Script, error) {
 	txidBytes, err := hex.DecodeString(txid)
 	if err != nil || len(txidBytes) != 32 {
@@ -1235,7 +1342,20 @@ func newFTTx() *bt.Tx {
 }
 
 // signP2PKHInput 为指定输入生成 P2PKH 解锁脚本（ALL|FORKID）。
+// 与 tbc-lib-js tx.sign() 对齐：若输入为 P2PKH 且私钥的 pkh 与锁定脚本不匹配，
+// 则静默跳过该输入（不签名、不报错），避免产生无效的解锁脚本。
 func signP2PKHInput(tx *bt.Tx, privKey *bec.PrivateKey, inputIdx uint32) error {
+	in := tx.Inputs[inputIdx]
+	if in.PreviousTxScript != nil && in.PreviousTxScript.IsP2PKH() {
+		scriptPKH, err := in.PreviousTxScript.PublicKeyHash()
+		if err == nil {
+			keyPKH := crypto.Hash160(privKey.PubKey().SerialiseCompressed())
+			if !bytes.Equal(scriptPKH, keyPKH) {
+				return nil
+			}
+		}
+	}
+
 	sh, err := tx.CalcInputSignatureHash(inputIdx, sighash.AllForkID)
 	if err != nil {
 		return err
