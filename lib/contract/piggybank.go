@@ -2,6 +2,7 @@
 package contract
 
 import (
+	"bytes"
 	"context"
 	"encoding/binary"
 	"encoding/hex"
@@ -9,8 +10,10 @@ import (
 	"strings"
 
 	"github.com/libsv/go-bk/bec"
+	"github.com/libsv/go-bk/crypto"
 	bt "github.com/sCrypt-Inc/go-bt/v2"
 	"github.com/sCrypt-Inc/go-bt/v2/bscript"
+	"github.com/sCrypt-Inc/go-bt/v2/sighash"
 	"github.com/sCrypt-Inc/go-bt/v2/unlocker"
 	"github.com/sCrypt-Inc/tbc-contract-go/lib/api"
 	"github.com/sCrypt-Inc/tbc-contract-go/lib/util"
@@ -60,6 +63,40 @@ func addressFromPrivForNetwork(priv *bec.PrivateKey, network string) (*bscript.A
 	return bscript.NewAddressFromPublicKey(priv.PubKey(), mainnet)
 }
 
+// piggyOrP2PKHPrefixUnlocker 用于花费 PiggyBank 锁定脚本：前缀与 P2PKH 相同（OP_DUP OP_HASH160 … OP_EQUALVERIFY OP_CHECKSIGVERIFY），
+// IsP2PKH()/ScriptType 为 false 时 unlocker.Simple 会失败；按 PublicKeyHash 提取后与 JS setInputScript(sig+pubkey) 一致（见 nft.go p2pkhOrMintPrefixUnlocker）。
+type piggyOrP2PKHPrefixUnlocker struct{ priv *bec.PrivateKey }
+
+func (u *piggyOrP2PKHPrefixUnlocker) UnlockingScript(ctx context.Context, tx *bt.Tx, p bt.UnlockerParams) (*bscript.Script, error) {
+	if p.SigHashFlags == 0 {
+		p.SigHashFlags = sighash.AllForkID
+	}
+	prevScript := tx.Inputs[p.InputIdx].PreviousTxScript
+	pkh, err := prevScript.PublicKeyHash()
+	if err != nil {
+		return nil, err
+	}
+	keyPKH := crypto.Hash160(u.priv.PubKey().SerialiseCompressed())
+	if !bytes.Equal(pkh, keyPKH) {
+		return bscript.NewFromBytes(nil), nil
+	}
+	sh, err := tx.CalcInputSignatureHash(p.InputIdx, p.SigHashFlags)
+	if err != nil {
+		return nil, err
+	}
+	sig, err := u.priv.Sign(sh)
+	if err != nil {
+		return nil, err
+	}
+	return bscript.NewP2PKHUnlockingScript(u.priv.PubKey().SerialiseCompressed(), sig.Serialise(), p.SigHashFlags)
+}
+
+type piggyOrP2PKHPrefixUnlockerGetter struct{ priv *bec.PrivateKey }
+
+func (g *piggyOrP2PKHPrefixUnlockerGetter) Unlocker(ctx context.Context, lockingScript *bscript.Script) (bt.Unlocker, error) {
+	return &piggyOrP2PKHPrefixUnlocker{priv: g.priv}, nil
+}
+
 // FreezeTBCWithSign 对齐 piggyBank._freezeTBC：在 FreezeTBC 基础上签名所有输入。
 // network 用于推导付款/找零地址版本（testnet / mainnet），与私钥展示地址一致。
 func FreezeTBCWithSign(priv *bec.PrivateKey, tbcNumber float64, lockTime uint32, utxos []*bt.UTXO, network string) (string, error) {
@@ -78,6 +115,8 @@ func FreezeTBCWithSign(priv *bec.PrivateKey, tbcNumber float64, lockTime uint32,
 	if err != nil {
 		return "", err
 	}
+	// 线格式输入不含上一笔 locking script；反序列化后需写回，否则 FillAllInputs 无法按 P2PKH 签名。
+	applyUtxosToTxInputs(tx, utxos)
 	ctx := context.Background()
 	if err := tx.FillAllInputs(ctx, &unlocker.Getter{PrivateKey: priv}); err != nil {
 		return "", err
@@ -139,8 +178,9 @@ func UnfreezeTBCWithSign(priv *bec.PrivateKey, utxos []*bt.UTXO, network string)
 	if err != nil {
 		return "", err
 	}
+	applyUtxosToTxInputs(tx, utxos)
 	ctx := context.Background()
-	if err := tx.FillAllInputs(ctx, &unlocker.Getter{PrivateKey: priv}); err != nil {
+	if err := tx.FillAllInputs(ctx, &piggyOrP2PKHPrefixUnlockerGetter{priv: priv}); err != nil {
 		return "", err
 	}
 	return hex.EncodeToString(tx.Bytes()), nil
@@ -166,4 +206,14 @@ func FetchTBCLockTime(scriptHex string) (uint32, error) {
 		return 0, fmt.Errorf("invalid lock time chunk")
 	}
 	return binary.LittleEndian.Uint32(c.Buf[:4]), nil
+}
+
+func applyUtxosToTxInputs(tx *bt.Tx, utxos []*bt.UTXO) {
+	for i := range tx.Inputs {
+		if i >= len(utxos) {
+			break
+		}
+		tx.Inputs[i].PreviousTxScript = utxos[i].LockingScript
+		tx.Inputs[i].PreviousTxSatoshis = utxos[i].Satoshis
+	}
 }

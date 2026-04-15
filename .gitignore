@@ -7,3 +7,6 @@ contract.test
 *.dll
 *.so
 *.dylib
+.DS_Store
+/piggy_freeze_run
+/ob_cancel_buy_compare

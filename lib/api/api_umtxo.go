@@ -42,7 +42,7 @@ func FetchUMTXO(scriptASM string, tbcAmount float64, network string) (*SimpleUTX
 	baseURL := getBaseURL(network)
 	url := fmt.Sprintf("%sutxo/scriptpubkeyhash/%s", baseURL, hash)
 
-	resp, err := defaultHTTPClient.Get(url)
+	resp, err := httpGetWithRetry(url)
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +103,7 @@ func FetchUMTXOs(scriptASM string, network string) ([]*SimpleUTXO, error) {
 	baseURL := getBaseURL(network)
 	url := fmt.Sprintf("%sutxo/scriptpubkeyhash/%s", baseURL, hash)
 
-	resp, err := defaultHTTPClient.Get(url)
+	resp, err := httpGetWithRetry(url)
 	if err != nil {
 		return nil, err
 	}

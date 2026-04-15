@@ -1499,15 +1499,29 @@ func TestFT_Integration_BatchTransfer_Broadcast(t *testing.T) {
 		logFTBalanceSnap(t, "BatchTransfer 广播前", network, contractTxid, recvAddr)
 	}
 
-	batchItems := make([]api.BroadcastTXsRequestItem, len(txraws))
+	t.Logf("BatchTransfer 交易数=%d，链式顺序广播", len(txraws))
 	for i, r := range txraws {
-		batchItems[i] = api.BroadcastTXsRequestItem{TxRaw: r}
+		var txid string
+		var broadcastErr error
+		maxRetry := 5
+		for attempt := 0; attempt < maxRetry; attempt++ {
+			if attempt > 0 {
+				t.Logf("  第 %d/%d 笔重试 %d/%d ...", i+1, len(txraws), attempt+1, maxRetry)
+				time.Sleep(3 * time.Second)
+			}
+			txid, broadcastErr = api.BroadcastTXRaw(r, network)
+			if broadcastErr == nil {
+				break
+			}
+			if !strings.Contains(broadcastErr.Error(), "Missing inputs") {
+				break
+			}
+		}
+		if broadcastErr != nil {
+			t.Fatalf("广播 BatchTransfer 第 %d/%d 笔失败: %v", i+1, len(txraws), broadcastErr)
+		}
+		t.Logf("BatchTransfer 第 %d/%d 笔广播成功 txid=%s", i+1, len(txraws), txid)
 	}
-	success, failed, err := api.BroadcastTXsRaw(batchItems, network)
-	if err != nil {
-		t.Fatalf("广播 BatchTransfer 交易失败: %v", err)
-	}
-	t.Logf("BatchTransfer 广播完成 success=%d failed=%d", success, failed)
 	t.Logf("BatchTransfer 广播后(即时查询，索引可能尚未更新)")
 	logFTBalanceSnap(t, "BatchTransfer 广播后(即时)", network, contractTxid, fromAddr.AddressString)
 	for _, recvAddr := range sortedReceiverAddrs(receivers) {

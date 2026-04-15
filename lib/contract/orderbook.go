@@ -23,8 +23,32 @@ import (
 const (
 	orderDataEncodedLen = 114
 
-	sellOrderTemplateHex = "765187637556ba01207f77547f75817654958f01289351947901157f597f7701217f597f597f517f7701207f756b517f77816b517f77816b517f776b517f776b7654958f01289379816b7654958f0128935394796b54958f0127935294796b006b7600879163bb7e6c7e6b6775757575687600879163bb7e6c7e6b6775757575687600879163bb7e6c7e6b6775757575687600879163bb7e6c7e6b6775757575687600879163bb7e6c7e6b6775757575687600879163bb7e6c7e6b6775757575687600879163bb7e6c7e6b6775757575687600879163bb7e6c7e6b6775757575687600879163bb7e6c7e6b6775757575687600879163bb7e6c7e6b6775757575686ca87e6b007e7e7e7e7e7e7e7e7e7ea86c7e7eaa56ba01207f7588006b7600879163a86c7e7e6bbb6c7e7e6bbb6c7e7e6c6c75756b676d6d6d760087916378787e6c6c6c7e7b7c886c55798194547901157f597f5879527a517f77886c76537a517f77887c01217f6c76537a517f77887c597f6c76537a517f7781887c597f6c76537a517f7781887c517f7701207f756c7c886b6b6b6b6b6bbb6c7e7e6b676d6d6c6c6c75756b6868760119885279537f7701147f756c6c6c76547a8700886b6b6bbb6c7e7e6b760119885279537f7701147f756c6c6c76547a8700886b766b557981946b6bbb6c7e7e6b760119885279537f7701147f756c6c6c6c76557a8700886b6b5579819400886bbb6c7e7e6b5279025c0788768255947f05465461706588537f7701307f7500517a587f587f587f587f587f81567a937c81517a937c81517a937c81517a937c81517a937c81517a935979025c078857798255947f05465461706588537f7701307f7500517a587f587f587f587f587f81567a937c81517a937c81517a937c81517a937c81517a937c81517a936c6c6c6c765a79885f7988765a79517f7701147f758700885f79517f7701147f75886c6c527a950340420f9676527a950340420f96547988537a947b886ba86c7e7e6bbb6c7e7e6ba86c7e7e6bbb6c7e7ea857ba8867528876a9"
-	buyOrderTemplateHex  = "765187637556ba01207f77547f75817654958f01289351947901157f597f7701217f597f597f517f7701207f756b517f77816b517f77816b517f776b517f776b7654958f0128935394796b54958f0127935294796b006b7600879163bb7e6c7e6b6775757575687600879163bb7e6c7e6b6775757575687600879163bb7e6c7e6b6775757575687600879163bb7e6c7e6b6775757575687600879163bb7e6c7e6b6775757575687600879163bb7e6c7e6b6775757575687600879163bb7e6c7e6b6775757575687600879163bb7e6c7e6b6775757575687600879163bb7e6c7e6b6775757575687600879163bb7e6c7e6b6775757575686ca87e6b007e7e7e7e7e7e7e7e7e7ea86c7e7eaa56ba01207f7588006b760087636d6d6d7600879163bb6c7e7e676d6d6c686c6c75756b67577957797e6c6c6c7e7b7c885379025c0788788255947f054654617065886c6c765879886b6b537f7701307f7500517a587f587f587f587f587f81567a937c81517a937c81517a937c81517a937c81517a937c81517a935679517f7701147f756b6b6ba86c7e7e6bbb6c7e7e6b527901157f597f6c6c6c6c76577a517f7788547a01217f6c76537a517f77887c597f6c76537a517f7781887c597f6c76537a517f7781767c88527a517f7701207f756c7c88587a517f7781517a950340420f96567a7c886b6b6b6b6b6bbb6c6c5279a97c887e7e6b68760119885279537f7701147f756c6c76537a8700886b6bbb6c7e7e6b760119885279537f7701147f756c6c76537a8700886b5479816b6bbb6c7e7e6b760119885279537f7701147f756c6c6c76547a8878577981936c6c5279950340420f96547a886c527a950340420f967c6b7c6b6b6bbb6c7e7e6b5279025c0788768255947f05465461706588537f7701307f7500517a587f587f587f587f587f81567a937c81517a937c81517a937c81517a937c81517a937c81517a935979025c078857798255947f05465461706588537f7701307f7500517a587f587f587f587f587f81567a937c81517a937c81517a937c81517a937c81517a937c81517a936c6c6c6c765a79885f7988765a79517f7701147f758700885f79517f7701147f75870088537a94527a9400886ba86c7e7e6bbb6c7e7e6ba86c7e7e6bbb6c7e7ea857ba8867528876a9"
+	ftV2Length        = 1884
+	ftV2PartialOffset = 1856
+	coinCodeLength    = 2012
+	coinPartialOffset = 1984
+
+	sellOrderTemplatePart1 = "765187637556ba01207f77547f75817654958f01289351947901157f597f7701217f597f597f517f7701207f756b517f77816b517f77816b517f776b517f776b7654958f01289379816b7654958f0128935394796b54958f0127935294796b006b7600879163bb7e6c7e6b6775757575687600879163bb7e6c7e6b6775757575687600879163bb7e6c7e6b6775757575687600879163bb7e6c7e6b6775757575687600879163bb7e6c7e6b6775757575687600879163bb7e6c7e6b6775757575687600879163bb7e6c7e6b6775757575687600879163bb7e6c7e6b6775757575687600879163bb7e6c7e6b6775757575687600879163bb7e6c7e6b6775757575686ca87e6b007e7e7e7e7e7e7e7e7e7ea86c7e7eaa56ba01207f7588006b7600879163a86c7e7e6bbb6c7e7e6bbb6c7e7e6c6c75756b676d6d6d760087916378787e6c6c6c7e7b7c886c55798194547901157f597f5879527a517f77886c76537a517f77887c01217f6c76537a517f77887c597f6c76537a517f7781887c597f6c76537a517f7781887c517f7701207f756c7c886b6b6b6b6b6bbb6c7e7e6b676d6d6c6c6c75756b6868760119885279537f7701147f756c6c6c76547a8700886b6b6bbb6c7e7e6b760119885279537f7701147f756c6c567981008763527a75677b"
+	// between part1 and part2: taxAddressHex (21 bytes = "14"+hash160hex)
+	sellOrderTemplatePart2a = "8868766b557981946b6bbb6c7e7e6b760119885279537f7701147f756c6c6c6c76557a8700886b6b5579819400886bbb6c7e7e6b527902"
+	// between part2a and part2b: ftCodeSize (2 bytes hex, "5c07" or "dc07")
+	sellOrderTemplatePart2b = "88768255947f05465461706588537f7701307f7500517a587f587f587f587f587f81567a937c81517a937c81517a937c81517a937c81517a937c81517a93597902"
+	// between part2b and part2c: ftCodeSize again
+	sellOrderTemplatePart2c = "8857798255947f05465461706588537f7701307f7500517a587f587f587f587f587f81567a937c81517a937c81517a937c81517a937c81517a937c81517a936c6c6c6c765a79885f79885979517f7701147f75"
+	// between part2c and part3: taxAddressHex again
+	sellOrderTemplatePart3 = "885f79517f7701147f75886c6c527a950340420f9676527a950340420f96547988537a947b886ba86c7e7e6bbb6c7e7e6ba86c7e7e6bbb6c7e7ea857ba8867528876a9"
+
+	buyOrderTemplatePart1 = "765187637556ba01207f77547f75817654958f01289351947901157f597f7701217f597f597f517f7701207f756b517f77816b517f77816b517f776b517f776b7654958f0128935394796b54958f0127935294796b006b7600879163bb7e6c7e6b6775757575687600879163bb7e6c7e6b6775757575687600879163bb7e6c7e6b6775757575687600879163bb7e6c7e6b6775757575687600879163bb7e6c7e6b6775757575687600879163bb7e6c7e6b6775757575687600879163bb7e6c7e6b6775757575687600879163bb7e6c7e6b6775757575687600879163bb7e6c7e6b6775757575687600879163bb7e6c7e6b6775757575686ca87e6b007e7e7e7e7e7e7e7e7e7ea86c7e7eaa56ba01207f7588006b760087636d6d6d7600879163bb6c7e7e676d6d6c686c6c75756b67577957797e6c6c6c7e7b7c88537902"
+	// between part1 and part1b: ftCodeSize
+	buyOrderTemplatePart1b = "88788255947f054654617065886c6c765879886b6b537f7701307f7500517a587f587f587f587f587f81567a937c81517a937c81517a937c81517a937c81517a937c81517a935679517f7701147f756b6b6ba86c7e7e6bbb6c7e7e6b527901157f597f6c6c6c6c76577a517f7788547a01217f6c76537a517f77887c597f6c76537a517f7781887c597f6c76537a517f7781767c88527a517f7701207f756c7c88587a517f7781517a950340420f96567a7c886b6b6b6b6b6bbb6c6c5279a97c887e7e6b68760119885279537f7701147f756c6c76537a8700886b6bbb6c7e7e6b760119885279537f7701147f756c55798100876377677c"
+	// between part1b and part2: taxAddressHex
+	buyOrderTemplatePart2 = "88685479816b6bbb6c7e7e6b760119885279537f7701147f756c6c6c76547a8878577981936c6c5279950340420f96547a886c527a950340420f967c6b7c6b6b6bbb6c7e7e6b527902"
+	// between part2 and part2b: ftCodeSize
+	buyOrderTemplatePart2b = "88768255947f05465461706588537f7701307f7500517a587f587f587f587f587f81567a937c81517a937c81517a937c81517a937c81517a937c81517a93597902"
+	// between part2b and part2c: ftCodeSize
+	buyOrderTemplatePart2c = "8857798255947f05465461706588537f7701307f7500517a587f587f587f587f587f81567a937c81517a937c81517a937c81517a937c81517a937c81517a936c6c6c6c765a79885f79885979517f7701147f75"
+	// between part2c and part3: taxAddressHex
+	buyOrderTemplatePart3 = "885f79517f7701147f75870088537a94527a9400886ba86c7e7e6bbb6c7e7e6ba86c7e7e6bbb6c7e7ea857ba8867528876a9"
 )
 
 var sha256HexPattern = regexp.MustCompile(`^[a-fA-F0-9]{64}$`)
@@ -59,11 +83,12 @@ func NewOrderBook() *OrderBook {
 
 func (o *OrderBook) BuildSellOrderTX(
 	holdAddress string,
+	taxAddress string,
 	saleVolume uint64,
 	unitPrice uint64,
 	feeRate uint64,
 	ftID string,
-	ftPartialHash string,
+	ftCodeScript string,
 	utxos []*bt.UTXO,
 ) (string, error) {
 	if saleVolume == 0 || unitPrice == 0 {
@@ -75,9 +100,23 @@ func (o *OrderBook) BuildSellOrderTX(
 	if !isValidAddress(holdAddress) {
 		return "", fmt.Errorf("invalid holdAddress")
 	}
-	if !isValidSHA256Hex(ftID) || !isValidSHA256Hex(ftPartialHash) {
-		return "", fmt.Errorf("ftID and ftPartialHash must be valid SHA256 hash strings")
+	if !isValidAddress(taxAddress) {
+		return "", fmt.Errorf("invalid taxAddress")
 	}
+	if !isValidSHA256Hex(ftID) {
+		return "", fmt.Errorf("ftID must be a valid SHA256 hash string")
+	}
+
+	ftCodeBytes, err := hex.DecodeString(ftCodeScript)
+	if err != nil {
+		return "", fmt.Errorf("invalid ftCodeScript hex: %w", err)
+	}
+	isCoin := len(ftCodeBytes) == coinCodeLength
+	partialOffset := ftV2PartialOffset
+	if isCoin {
+		partialOffset = coinPartialOffset
+	}
+	ftPartialHash := partialsha256.CalculatePartialHash(ftCodeBytes[:partialOffset])
 
 	o.Type = "sell"
 	o.HoldAddress = holdAddress
@@ -87,7 +126,7 @@ func (o *OrderBook) BuildSellOrderTX(
 	o.FtAContractID = ftID
 	o.FtAContractPartial = ftPartialHash
 
-	sellOrderCode, err := o.GetSellOrderCode()
+	sellOrderCode, err := o.GetSellOrderCode(isCoin, taxAddress)
 	if err != nil {
 		return "", err
 	}
@@ -126,26 +165,88 @@ func (o *OrderBook) BuildCancelSellOrderTX(sellUTXO *bt.UTXO, utxos []*bt.UTXO) 
 		return "", err
 	}
 	tx.To(sellData.HoldAddress, sellUTXO.Satoshis)
-	if err := tx.ChangeToAddress(sellData.HoldAddress, newFeeQuote80()); err != nil {
-		return "", err
+
+	var feeInputTotal uint64
+	for _, u := range utxos {
+		feeInputTotal += u.Satoshis
+	}
+	fee := obCalcFee(tbcJSEstimateTxBytes(tx))
+	if int(feeInputTotal) > fee {
+		tx.To(sellData.HoldAddress, uint64(int(feeInputTotal)-fee))
 	}
 	return hex.EncodeToString(tx.Bytes()), nil
 }
 
-func (o *OrderBook) GetSellOrderCode() (*bscript.Script, error) {
+func (o *OrderBook) GetSellOrderCode(isCoin bool, taxAddress string) (*bscript.Script, error) {
 	dataHex, err := o.buildOrderDataHex()
 	if err != nil {
 		return nil, err
 	}
-	return bscript.NewFromHexString(sellOrderTemplateHex + dataHex)
+	addr, err := bscript.NewAddressFromString(o.HoldAddress)
+	if err != nil {
+		return nil, err
+	}
+	taxAddr, err := bscript.NewAddressFromString(taxAddress)
+	if err != nil {
+		return nil, fmt.Errorf("invalid taxAddress: %w", err)
+	}
+	addressHex := "14" + addr.PublicKeyHash
+	taxAddressHex := "14" + taxAddr.PublicKeyHash
+	ftCodeSize := "5c07"
+	if isCoin {
+		ftCodeSize = "dc07"
+	}
+	sellSuffix := "88ad68516a07ffffffffffffff"
+	fullHex := sellOrderTemplatePart1 +
+		taxAddressHex +
+		sellOrderTemplatePart2a +
+		ftCodeSize +
+		sellOrderTemplatePart2b +
+		ftCodeSize +
+		sellOrderTemplatePart2c +
+		taxAddressHex +
+		sellOrderTemplatePart3 +
+		addressHex +
+		sellSuffix +
+		dataHex
+	return bscript.NewFromHexString(fullHex)
 }
 
-func (o *OrderBook) GetBuyOrderCode() (*bscript.Script, error) {
+func (o *OrderBook) GetBuyOrderCode(isCoin bool, taxAddress string) (*bscript.Script, error) {
 	dataHex, err := o.buildOrderDataHex()
 	if err != nil {
 		return nil, err
 	}
-	return bscript.NewFromHexString(buyOrderTemplateHex + dataHex)
+	addr, err := bscript.NewAddressFromString(o.HoldAddress)
+	if err != nil {
+		return nil, err
+	}
+	taxAddr, err := bscript.NewAddressFromString(taxAddress)
+	if err != nil {
+		return nil, fmt.Errorf("invalid taxAddress: %w", err)
+	}
+	addressHex := "14" + addr.PublicKeyHash
+	taxAddressHex := "14" + taxAddr.PublicKeyHash
+	ftCodeSize := "5c07"
+	if isCoin {
+		ftCodeSize = "dc07"
+	}
+	buySuffix := "88ad68516a30ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+	fullHex := buyOrderTemplatePart1 +
+		ftCodeSize +
+		buyOrderTemplatePart1b +
+		taxAddressHex +
+		buyOrderTemplatePart2 +
+		ftCodeSize +
+		buyOrderTemplatePart2b +
+		ftCodeSize +
+		buyOrderTemplatePart2c +
+		taxAddressHex +
+		buyOrderTemplatePart3 +
+		addressHex +
+		buySuffix +
+		dataHex
+	return bscript.NewFromHexString(fullHex)
 }
 
 func UpdateSaleVolume(codeScriptHex string, newSaleVolume uint64) (string, error) {
@@ -227,12 +328,24 @@ func (o *OrderBook) FillSigsSellOrder(sellOrderTxRaw string, sigs []string, publ
 // MakeSellOrderWithSign 带私钥签名的卖单构建，对齐 orderBook.ts makeSellOrder_privateKey。
 func (o *OrderBook) MakeSellOrderWithSign(
 	privKey *bec.PrivateKey,
+	taxAddress string,
 	saleVolume, unitPrice, feeRate uint64,
-	ftID, ftPartialHash string,
+	ftID, ftCodeScript string,
 	utxos []*bt.UTXO,
 ) (string, error) {
 	addr, _ := bscript.NewAddressFromPublicKey(privKey.PubKey(), true)
 	holdAddress := addr.AddressString
+
+	ftCodeBytes, err := hex.DecodeString(ftCodeScript)
+	if err != nil {
+		return "", fmt.Errorf("invalid ftCodeScript hex: %w", err)
+	}
+	isCoin := len(ftCodeBytes) == coinCodeLength
+	partialOffset := ftV2PartialOffset
+	if isCoin {
+		partialOffset = coinPartialOffset
+	}
+	ftPartialHash := partialsha256.CalculatePartialHash(ftCodeBytes[:partialOffset])
 
 	o.Type = "sell"
 	o.HoldAddress = holdAddress
@@ -242,7 +355,7 @@ func (o *OrderBook) MakeSellOrderWithSign(
 	o.FtAContractID = ftID
 	o.FtAContractPartial = ftPartialHash
 
-	sellOrderCode, err := o.GetSellOrderCode()
+	sellOrderCode, err := o.GetSellOrderCode(isCoin, taxAddress)
 	if err != nil {
 		return "", err
 	}
@@ -282,8 +395,14 @@ func (o *OrderBook) CancelSellOrderWithSign(
 		return "", err
 	}
 	tx.To(sellData.HoldAddress, sellUTXO.Satoshis)
-	if err := tx.ChangeToAddress(sellData.HoldAddress, newFeeQuote80()); err != nil {
-		return "", err
+
+	var feeInputTotal uint64
+	for _, u := range utxos {
+		feeInputTotal += u.Satoshis
+	}
+	fee := obCalcFee(tbcJSEstimateTxBytes(tx))
+	if int(feeInputTotal) > fee {
+		tx.To(sellData.HoldAddress, uint64(int(feeInputTotal)-fee))
 	}
 
 	// Input 0: sell order unlock with OP_2
@@ -309,6 +428,260 @@ func (o *OrderBook) CancelSellOrderWithSign(
 	// Sign remaining P2PKH inputs
 	ctx := context.Background()
 	for i := 1; i < len(tx.Inputs); i++ {
+		su := &unlocker.Simple{PrivateKey: privKey}
+		us, err := su.UnlockingScript(ctx, tx, bt.UnlockerParams{
+			InputIdx:     uint32(i),
+			SigHashFlags: sighash.AllForkID,
+		})
+		if err != nil {
+			return "", err
+		}
+		if err := tx.InsertInputUnlockingScript(uint32(i), us); err != nil {
+			return "", err
+		}
+	}
+
+	return hex.EncodeToString(tx.Bytes()), nil
+}
+
+// MakeBuyOrderWithSign 带私钥签名的买单构建，对齐 orderBook.ts makeBuyOrder_privateKey。
+func (o *OrderBook) MakeBuyOrderWithSign(
+	privKey *bec.PrivateKey,
+	taxAddress string,
+	saleVolume, unitPrice, feeRate uint64,
+	ftID string,
+	utxos []*bt.UTXO,
+	ftUTXOs []*bt.FtUTXO,
+	preTXs []*bt.Tx,
+	prepreTxData []string,
+) (string, error) {
+	if saleVolume == 0 || unitPrice == 0 {
+		return "", fmt.Errorf("saleVolume and unitPrice must be positive")
+	}
+	if len(ftUTXOs) == 0 {
+		return "", fmt.Errorf("ftUTXOs cannot be empty")
+	}
+	if len(preTXs) != len(ftUTXOs) || len(prepreTxData) != len(ftUTXOs) {
+		return "", fmt.Errorf("preTXs and prepreTxData must match ftUTXOs length")
+	}
+	if !isValidSHA256Hex(ftID) {
+		return "", fmt.Errorf("ftID must be a valid SHA256 hash string")
+	}
+
+	addr, _ := bscript.NewAddressFromPublicKey(privKey.PubKey(), true)
+	holdAddress := addr.AddressString
+
+	ftCodeBytes, _ := hex.DecodeString(ftUTXOs[0].Script)
+	isCoin := len(ftCodeBytes) == coinCodeLength
+	partialOffset := ftV2PartialOffset
+	if isCoin {
+		partialOffset = coinPartialOffset
+	}
+	ftPartialHash := partialsha256.CalculatePartialHash(ftCodeBytes[:partialOffset])
+
+	o.Type = "buy"
+	o.HoldAddress = holdAddress
+	o.SaleVolume = saleVolume
+	o.UnitPrice = unitPrice
+	o.FeeRate = feeRate
+	o.FtAContractID = ftID
+	o.FtAContractPartial = ftPartialHash
+
+	tx := newFTTx()
+
+	for _, fu := range ftUTXOs {
+		txidBytes, err := hex.DecodeString(fu.TxID)
+		if err != nil {
+			return "", err
+		}
+		ls, _ := bscript.NewFromHexString(fu.Script)
+		utxo := &bt.UTXO{
+			TxID:          txidBytes,
+			Vout:          fu.Vout,
+			Satoshis:      fu.Satoshis,
+			LockingScript: ls,
+		}
+		if isCoin {
+			utxo.SequenceNumber = 4294967294
+		}
+		if err := tx.FromUTXOs(utxo); err != nil {
+			return "", err
+		}
+	}
+	if err := tx.FromUTXOs(utxos...); err != nil {
+		return "", err
+	}
+
+	buyOrderCode, err := o.GetBuyOrderCode(isCoin, taxAddress)
+	if err != nil {
+		return "", err
+	}
+	tx.AddOutput(&bt.Output{LockingScript: buyOrderCode, Satoshis: o.BuyCodeDust})
+
+	precision := uint64(1000000)
+	ftAmount := saleVolume * unitPrice / precision
+
+	tapeAmountSetIn := make([]*big.Int, 0, len(ftUTXOs))
+	tapeAmountSum := new(big.Int)
+	for _, fu := range ftUTXOs {
+		bal, _ := new(big.Int).SetString(fu.FtBalance, 10)
+		if bal == nil {
+			bal = big.NewInt(0)
+		}
+		tapeAmountSetIn = append(tapeAmountSetIn, bal)
+		tapeAmountSum.Add(tapeAmountSum, bal)
+	}
+
+	amountHex, changeHex := BuildTapeAmount(big.NewInt(int64(ftAmount)), tapeAmountSetIn)
+
+	ftCodeHex := ftUTXOs[0].Script
+	ftTapeHex := hex.EncodeToString(preTXs[0].Outputs[ftUTXOs[0].Vout+1].LockingScript.Bytes())
+	ftCodeDust := ftUTXOs[0].Satoshis
+
+	buyHash160 := sha256ripemd160(sha256sum(sha256sum(buyOrderCode.Bytes())))
+	ftCodeBuy := BuildFTtransferCode(ftCodeHex, hex.EncodeToString(buyHash160))
+	ftTapeBuy := BuildFTtransferTape(ftTapeHex, amountHex)
+
+	tx.AddOutput(&bt.Output{LockingScript: ftCodeBuy, Satoshis: ftCodeDust})
+	tx.AddOutput(&bt.Output{LockingScript: ftTapeBuy, Satoshis: 0})
+
+	if big.NewInt(int64(ftAmount)).Cmp(tapeAmountSum) < 0 {
+		ftCodeChange := BuildFTtransferCode(ftCodeHex, holdAddress)
+		ftTapeChange := BuildFTtransferTape(ftTapeHex, changeHex)
+		tx.AddOutput(&bt.Output{LockingScript: ftCodeChange, Satoshis: ftCodeDust})
+		tx.AddOutput(&bt.Output{LockingScript: ftTapeChange, Satoshis: 0})
+	}
+
+	var feeInputTotal uint64
+	for _, u := range utxos {
+		feeInputTotal += u.Satoshis
+	}
+	txSize := tbcJSEstimateTxBytes(tx) + len(ftUTXOs)*2000 + 34
+	fee := obCalcFee(txSize)
+	changeAmount := int(feeInputTotal) - fee
+	if changeAmount > 546 {
+		tx.To(holdAddress, uint64(changeAmount))
+	}
+
+	ftInstance := &FT{ContractTxid: ftID}
+	for i := 0; i < len(ftUTXOs); i++ {
+		unlock, err := ftInstance.getFTunlock(privKey, tx, preTXs[i], prepreTxData[i], i, int(ftUTXOs[i].Vout))
+		if err != nil {
+			return "", fmt.Errorf("getFTunlock[%d]: %w", i, err)
+		}
+		if err := tx.InsertInputUnlockingScript(uint32(i), unlock); err != nil {
+			return "", err
+		}
+	}
+
+	ctx := context.Background()
+	for i := len(ftUTXOs); i < len(tx.Inputs); i++ {
+		su := &unlocker.Simple{PrivateKey: privKey}
+		us, err := su.UnlockingScript(ctx, tx, bt.UnlockerParams{
+			InputIdx:     uint32(i),
+			SigHashFlags: sighash.AllForkID,
+		})
+		if err != nil {
+			return "", err
+		}
+		if err := tx.InsertInputUnlockingScript(uint32(i), us); err != nil {
+			return "", err
+		}
+	}
+
+	return hex.EncodeToString(tx.Bytes()), nil
+}
+
+// CancelBuyOrderWithSign 带私钥签名的撤销买单，对齐 orderBook.ts cancelBuyOrder_privateKey。
+// ftBalance 为 FT UTXO 中的 FT 代币余额。
+func (o *OrderBook) CancelBuyOrderWithSign(
+	privKey *bec.PrivateKey,
+	buyUTXO *bt.UTXO,
+	buyPreTX *bt.Tx,
+	ftUTXO *bt.UTXO,
+	ftPreTX *bt.Tx,
+	ftPrePreTxData string,
+	ftBalance *big.Int,
+	utxos []*bt.UTXO,
+) (string, error) {
+	buyData, err := GetOrderData(buyUTXO.LockingScript.String(), true)
+	if err != nil {
+		return "", fmt.Errorf("parse buy order: %w", err)
+	}
+
+	tx := newFTTx()
+	if err := tx.FromUTXOs(buyUTXO); err != nil {
+		return "", err
+	}
+	if err := tx.FromUTXOs(ftUTXO); err != nil {
+		return "", err
+	}
+	if err := tx.FromUTXOs(utxos...); err != nil {
+		return "", err
+	}
+
+	tapeScript := ftPreTX.Outputs[ftUTXO.Vout+1].LockingScript.Bytes()
+	ftTapeHex := hex.EncodeToString(tapeScript)
+
+	tapeAmountSetIn := []*big.Int{ftBalance}
+	amountHex, changeHex := BuildTapeAmountWithFtInputIndex(ftBalance, tapeAmountSetIn, 1)
+	_ = changeHex
+
+	ftCodeHex := ftUTXO.LockingScript.String()
+	ftCodeOut := BuildFTtransferCode(ftCodeHex, buyData.HoldAddress)
+	ftTapeOut := BuildFTtransferTape(ftTapeHex, amountHex)
+
+	tx.AddOutput(&bt.Output{LockingScript: ftCodeOut, Satoshis: ftUTXO.Satoshis})
+	tx.AddOutput(&bt.Output{LockingScript: ftTapeOut, Satoshis: 0})
+
+	var feeInputTotal uint64
+	for _, u := range utxos {
+		feeInputTotal += u.Satoshis
+	}
+	fee := obCalcFee(tbcJSEstimateTxBytes(tx) + 2000 + 34)
+	if int(feeInputTotal) > fee {
+		tx.To(buyData.HoldAddress, uint64(int(feeInputTotal)-fee))
+	}
+
+	// Input 0: buy order unlock with OP_2
+	sh, err := tx.CalcInputSignatureHash(0, sighash.AllForkID)
+	if err != nil {
+		return "", err
+	}
+	sig, err := privKey.Sign(sh)
+	if err != nil {
+		return "", err
+	}
+	pubKeyHex := hex.EncodeToString(privKey.PubKey().SerialiseCompressed())
+	sigHex := hex.EncodeToString(append(sig.Serialise(), byte(sighash.AllForkID)))
+	cancelASM := fmt.Sprintf("%s %s OP_2", sigHex, pubKeyHex)
+	cancelScript, err := bscript.NewFromASM(cancelASM)
+	if err != nil {
+		return "", err
+	}
+	if err := tx.InsertInputUnlockingScript(0, cancelScript); err != nil {
+		return "", err
+	}
+
+	// Detect isCoin
+	isCoin := len(ftUTXO.LockingScript.Bytes()) == coinCodeLength
+	if isCoin {
+		tx.Inputs[1].SequenceNumber = 4294967294
+	}
+
+	// Input 1: FT unlock swap
+	ftInstance := &FT{ContractTxid: buyData.FtID}
+	ftSwapUnlock, err := ftInstance.getFTunlockSwap(privKey, tx, ftPreTX, ftPrePreTxData, buyPreTX, 1, int(ftUTXO.Vout), 2, isCoin)
+	if err != nil {
+		return "", fmt.Errorf("getFTunlockSwap: %w", err)
+	}
+	if err := tx.InsertInputUnlockingScript(1, ftSwapUnlock); err != nil {
+		return "", err
+	}
+
+	// Sign remaining P2PKH inputs
+	ctx := context.Background()
+	for i := 2; i < len(tx.Inputs); i++ {
 		su := &unlocker.Simple{PrivateKey: privKey}
 		us, err := su.UnlockingScript(ctx, tx, bt.UnlockerParams{
 			InputIdx:     uint32(i),
@@ -436,7 +809,7 @@ func (o *OrderBook) MatchOrder(
 		newBuyScript, _ := bscript.NewFromHexString(newBuyCode)
 		tx.AddOutput(&bt.Output{LockingScript: newBuyScript, Satoshis: o.BuyCodeDust})
 
-		buyHash160 := sha256ripemd160(sha256sum(newBuyScript.Bytes()))
+		buyHash160 := sha256ripemd160(sha256sum(sha256sum(newBuyScript.Bytes())))
 		ftChangeCode := BuildFTtransferCode(ftCodeHex, hex.EncodeToString(buyHash160))
 		tx.AddOutput(&bt.Output{LockingScript: ftChangeCode, Satoshis: ftUTXO.Satoshis})
 		ftChangeTape := BuildFTtransferTape(ftTapeHex, changeHex)
@@ -460,9 +833,15 @@ func (o *OrderBook) MatchOrder(
 		return "", err
 	}
 
+	// Detect isCoin and set sequence if needed
+	isCoin := len(ftCodeHex)/2 == coinCodeLength
+	if isCoin {
+		tx.Inputs[1].SequenceNumber = 4294967294
+	}
+
 	// FT unlock for input 1
 	ftInstance := &FT{ContractTxid: ftID}
-	ftSwapUnlock, err := ftInstance.getFTunlockSwap(privKey, tx, ftPreTX, ftPrePreTxData, buyPreTX, 1, int(ftUTXO.Vout), 2)
+	ftSwapUnlock, err := ftInstance.getFTunlockSwap(privKey, tx, ftPreTX, ftPrePreTxData, buyPreTX, 1, int(ftUTXO.Vout), 2, isCoin)
 	if err != nil {
 		return "", err
 	}
@@ -507,12 +886,14 @@ func (o *OrderBook) getOrderUnlock(currentTX *bt.Tx, preTX *bt.Tx, preTxVout int
 // 以下为 orderbookunlock 功能的 Go 实现，对齐 tbc-contract/lib/util/orderbookunlock.ts
 
 const (
-	obVersion         = 10
-	obFtCodeLength    = 1884
-	obBuyCodeLength   = 896 + 114
-	obSellCodeLength  = 832 + 114
-	obFtPartialOffset = 1856
-	obBuyPartialOffset  = 896
+	obVersion          = 10
+	obFtCodeLength     = 1884
+	obCoinCodeLength   = 2012
+	obBuyCodeLength    = 960 + 114
+	obSellCodeLength   = 832 + 114
+	obFtPartialOffset  = 1856
+	obCoinPartialOffset = 1984
+	obBuyPartialOffset  = 960
 	obSellPartialOffset = 832
 )
 
@@ -630,6 +1011,8 @@ func getOrderBookCurrentTxOutputsData(tx *bt.Tx) (string, error) {
 		partialOffset := 0
 		if scriptLen == obFtCodeLength {
 			partialOffset = obFtPartialOffset
+		} else if scriptLen == obCoinCodeLength {
+			partialOffset = obCoinPartialOffset
 		} else if scriptLen == obBuyCodeLength {
 			partialOffset = obBuyPartialOffset
 		} else if scriptLen == obSellCodeLength {
@@ -667,7 +1050,7 @@ func getOrderBookCurrentTxOutputsData(tx *bt.Tx) (string, error) {
 		buf = append(buf, obGetLengthHex(len(sizeBytes))...)
 		buf = append(buf, sizeBytes...)
 
-		if scriptLen == obFtCodeLength {
+		if scriptLen == obFtCodeLength || scriptLen == obCoinCodeLength {
 			if i+1 < len(tx.Outputs) {
 				nextOut := tx.Outputs[i+1]
 				nextScript := nextOut.LockingScript.Bytes()
@@ -690,6 +1073,13 @@ func getOrderBookCurrentTxOutputsData(tx *bt.Tx) (string, error) {
 		buf = append(buf, 0x00)
 	}
 	return hex.EncodeToString(buf), nil
+}
+
+func obCalcFee(txSize int) int {
+	if txSize < 1000 {
+		return 500
+	}
+	return int(math.Ceil(float64(txSize) / 1000.0 * 500.0))
 }
 
 func appendUint32LE(buf []byte, v uint32) []byte {

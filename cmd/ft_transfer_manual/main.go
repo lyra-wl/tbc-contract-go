@@ -25,7 +25,7 @@ import (
 	"github.com/sCrypt-Inc/tbc-contract-go/lib/contract"
 )
 
-// ——— 手动改这里（与 test.ts 顶部常量对齐）———
+// ——— 手动改这里（参数与 scripts/test.ts Transfer 段对应）———
 const (
 	network = "testnet"
 
@@ -40,7 +40,7 @@ const (
 	mintSymbol  = "test"
 	mintDecimal = 6
 	mintAmount  = int64(100000000)
-	// Mint 选 TBC 手续费 UTXO 时的 fetch 额度（与 ft_mint_verify FetchUTXO 0.02 对齐）
+	// Mint 选 TBC 手续费 UTXO 时的 fetch 额度（同 ft_mint_verify 默认）
 	mintFeeFetchTBC = 0.01
 
 	// 收款地址（对应 test.ts addressB）
@@ -49,14 +49,14 @@ const (
 	// 转账数量，十进制字符串（对应 test.ts transferTokenAmount = 1000）
 	transferAmount = "1000"
 
-	// 对应 test.ts：fetchUTXO(..., tbc_amount+0.01)；仅转 FT 时 tbc_amount=0 → 0.01
+	// fetchUTXO 第二参数：仅转 FT 时 tbc_amount=0 → 0.01
 	feeFetchTBC = 0.01
 
 	// 若要与某次 JS 组交易共用同一笔手续费 UTXO，填写 prevout；否则留空由接口选币
 	lockstepFeeTxid = ""
 	lockstepFeeVout = 0
 
-	// false：强制费率与 JS feePerKb(80) 对齐；调试 Go 费率时可改为 true
+	// false：组装前强制 FT_FEE_SAT_PER_KB=80；true：沿用环境变量/默认
 	respectFeeEnv = true
 
 	// 组装完成后是否调用 HTTP 广播（广播测试）

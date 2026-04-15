@@ -72,7 +72,7 @@ func TestGetOrderData_Roundtrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	codeHex := sellOrderTemplateHex + dataHex
+	codeHex := sellOrderTemplatePart1 + dataHex
 	od, err := GetOrderData(codeHex, true)
 	if err != nil {
 		t.Fatalf("GetOrderData: %v", err)
@@ -107,7 +107,7 @@ func TestUpdateSaleVolume(t *testing.T) {
 		FtAContractID:      strings.Repeat("cd", 32),
 	}
 	dataHex, _ := ob.buildOrderDataHex()
-	codeHex := sellOrderTemplateHex + dataHex
+	codeHex := sellOrderTemplatePart1 + dataHex
 
 	updatedHex, err := UpdateSaleVolume(codeHex, 500000)
 	if err != nil {
@@ -135,11 +135,11 @@ func TestGetSellOrderCode(t *testing.T) {
 		FtAContractPartial: strings.Repeat("ab", 32),
 		FtAContractID:      strings.Repeat("cd", 32),
 	}
-	script, err := ob.GetSellOrderCode()
+	script, err := ob.GetSellOrderCode(false, "1FhSD1YezTXbdRGWzNbNvUj6qeKQ6gZDMq")
 	if err != nil {
 		t.Fatalf("GetSellOrderCode: %v", err)
 	}
-	expectedMinLen := len(sellOrderTemplateHex)/2 + orderDataEncodedLen
+	expectedMinLen := obSellCodeLength
 	if script.Len() < expectedMinLen {
 		t.Errorf("sell order code length = %d, want >= %d", script.Len(), expectedMinLen)
 	}
@@ -154,11 +154,11 @@ func TestGetBuyOrderCode(t *testing.T) {
 		FtAContractPartial: strings.Repeat("ab", 32),
 		FtAContractID:      strings.Repeat("cd", 32),
 	}
-	script, err := ob.GetBuyOrderCode()
+	script, err := ob.GetBuyOrderCode(false, "1FhSD1YezTXbdRGWzNbNvUj6qeKQ6gZDMq")
 	if err != nil {
 		t.Fatalf("GetBuyOrderCode: %v", err)
 	}
-	expectedMinLen := len(buyOrderTemplateHex)/2 + orderDataEncodedLen
+	expectedMinLen := obBuyCodeLength
 	if script.Len() < expectedMinLen {
 		t.Errorf("buy order code length = %d, want >= %d", script.Len(), expectedMinLen)
 	}

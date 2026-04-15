@@ -174,7 +174,7 @@ func getFTBalanceByHash(contractTxID, hash, network string) (string, error) {
 	baseURL := getBaseURL(network)
 	url := fmt.Sprintf("%sft/tokenbalance/combinescript/%s/contract/%s", baseURL, hash, contractTxID)
 
-	resp, err := defaultHTTPClient.Get(url)
+	resp, err := httpGetWithRetry(url)
 	if err != nil {
 		return "", fmt.Errorf("%w", err)
 	}
@@ -197,7 +197,7 @@ func getFTBalanceByHash(contractTxID, hash, network string) (string, error) {
 func getFTBalanceByAddress(contractTxID, address, network string) (string, error) {
 	baseURL := getBaseURL(network)
 	url := fmt.Sprintf("%sft/tokenbalance/address/%s/contract/%s", baseURL, address, contractTxID)
-	resp, err := defaultHTTPClient.Get(url)
+	resp, err := httpGetWithRetry(url)
 	if err != nil {
 		return "", err
 	}
@@ -259,7 +259,7 @@ func fetchFtUTXOListResponse(contractTxID, hash, network string) (ftUtxoListResp
 	baseURL := getBaseURL(network)
 	url := fmt.Sprintf("%sft/utxo/combinescript/%s/contract/%s", baseURL, hash, contractTxID)
 
-	resp, err := defaultHTTPClient.Get(url)
+	resp, err := httpGetWithRetry(url)
 	if err != nil {
 		return ftUtxoListResponse{}, err
 	}
@@ -533,7 +533,7 @@ func FetchFtInfo(contractTxID, network string) (*FtInfo, error) {
 	baseURL := getBaseURL(network)
 	url := fmt.Sprintf("%sft/info/contract/%s", baseURL, contractTxID)
 
-	resp, err := defaultHTTPClient.Get(url)
+	resp, err := httpGetWithRetry(url)
 	if err != nil {
 		return nil, err
 	}

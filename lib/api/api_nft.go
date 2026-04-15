@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"sort"
+	"strings"
 )
 
 type NFTInfo struct {
@@ -70,9 +71,16 @@ func FetchNFTUTXO(script, txHash, network string) (*NFTUTXO, error) {
 		return nil, err
 	}
 	baseURL := getBaseURL(network)
-	url := fmt.Sprintf("%snft/utxo/scriptpubkeyhash/%s", baseURL, hash)
+	// 与 tbc-contract lib/api/api.ts fetchNFTTXO 一致：带 tx_hash 时用 utxo/scriptpubkeyhash（全量再按 tx 过滤），
+	// 否则用 nft/utxo/scriptpubkeyhash。
+	var url string
+	if strings.TrimSpace(txHash) != "" {
+		url = fmt.Sprintf("%sutxo/scriptpubkeyhash/%s", baseURL, hash)
+	} else {
+		url = fmt.Sprintf("%snft/utxo/scriptpubkeyhash/%s", baseURL, hash)
+	}
 
-	resp, err := defaultHTTPClient.Get(url)
+	resp, err := httpGetWithRetry(url)
 	if err != nil {
 		return nil, err
 	}
@@ -92,9 +100,10 @@ func FetchNFTUTXO(script, txHash, network string) (*NFTUTXO, error) {
 	}
 
 	if txHash != "" {
+		want := strings.TrimSpace(txHash)
 		var filtered []nftUtxoRaw
 		for _, u := range r.Data.UTXOs {
-			if u.TxID == txHash {
+			if strings.EqualFold(strings.TrimSpace(u.TxID), want) {
 				filtered = append(filtered, u)
 			}
 		}
@@ -117,9 +126,10 @@ func FetchNFTUTXOs(script, txHash, network string) ([]*NFTUTXO, error) {
 		return nil, err
 	}
 	baseURL := getBaseURL(network)
-	url := fmt.Sprintf("%snft/utxo/scriptpubkeyhash/%s", baseURL, hash)
+	// 与 api.ts fetchNFTTXOs 一致：始终 utxo/scriptpubkeyhash，再按 tx_hash 过滤
+	url := fmt.Sprintf("%sutxo/scriptpubkeyhash/%s", baseURL, hash)
 
-	resp, err := defaultHTTPClient.Get(url)
+	resp, err := httpGetWithRetry(url)
 	if err != nil {
 		return nil, err
 	}
@@ -135,9 +145,10 @@ func FetchNFTUTXOs(script, txHash, network string) ([]*NFTUTXO, error) {
 		return nil, err
 	}
 
+	want := strings.TrimSpace(txHash)
 	var filtered []nftUtxoRaw
 	for _, u := range r.Data.UTXOs {
-		if u.TxID == txHash {
+		if strings.EqualFold(strings.TrimSpace(u.TxID), want) {
 			filtered = append(filtered, u)
 		}
 	}
@@ -159,7 +170,7 @@ func FetchNFTInfo(contractID, network string) (*NFTInfo, error) {
 	baseURL := getBaseURL(network)
 	url := fmt.Sprintf("%snft/nftinfo/nftid/%s", baseURL, contractID)
 
-	resp, err := defaultHTTPClient.Get(url)
+	resp, err := httpGetWithRetry(url)
 	if err != nil {
 		return nil, err
 	}
@@ -191,7 +202,7 @@ func FetchNFTs(collectionID, address string, start, end int, network string) ([]
 	baseURL := getBaseURL(network)
 	url := fmt.Sprintf("%snft/nftbycollection/collectionid/%s/start/%d/end/%d", baseURL, collectionID, start, end)
 
-	resp, err := defaultHTTPClient.Get(url)
+	resp, err := httpGetWithRetry(url)
 	if err != nil {
 		return nil, err
 	}

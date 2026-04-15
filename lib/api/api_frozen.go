@@ -41,7 +41,7 @@ func FetchFrozenTBCBalance(address, network string) (uint64, error) {
 	baseURL := getBaseURL(network)
 	url := fmt.Sprintf("%sfrozenBalance/address/%s/piggyBank", baseURL, address)
 
-	resp, err := defaultHTTPClient.Get(url)
+	resp, err := httpGetWithRetry(url)
 	if err != nil {
 		return 0, err
 	}
@@ -87,7 +87,7 @@ func FetchFrozenUTXOList(address, network string) ([]*FrozenUTXO, error) {
 	baseURL := getBaseURL(network)
 	url := fmt.Sprintf("%sfrozenUtxo/address/%s/piggyBank", baseURL, address)
 
-	resp, err := defaultHTTPClient.Get(url)
+	resp, err := httpGetWithRetry(url)
 	if err != nil {
 		return nil, err
 	}

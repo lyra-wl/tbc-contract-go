@@ -80,7 +80,7 @@ func FetchPoolNFTInfo(contractTxID, network string) (*PoolNFTInfo, error) {
 	baseURL := getBaseURL(network)
 	url := fmt.Sprintf("%spool/poolinfo/poolid/%s", baseURL, contractTxID)
 
-	resp, err := defaultHTTPClient.Get(url)
+	resp, err := httpGetWithRetry(url)
 	if err != nil {
 		return nil, err
 	}
@@ -146,7 +146,7 @@ func FetchFtLpBalance(ftlpCode, network string) (string, error) {
 	baseURL := getBaseURL(network)
 	url := fmt.Sprintf("%spool/lputxo/scriptpubkeyhash/%s", baseURL, hash)
 
-	resp, err := defaultHTTPClient.Get(url)
+	resp, err := httpGetWithRetry(url)
 	if err != nil {
 		return "", err
 	}
@@ -181,7 +181,7 @@ func FetchFtLpUTXO(ftlpCode, network string, amount *big.Int) (*LpUTXO, error) {
 	baseURL := getBaseURL(network)
 	url := fmt.Sprintf("%spool/lputxo/scriptpubkeyhash/%s", baseURL, hash)
 
-	resp, err := defaultHTTPClient.Get(url)
+	resp, err := httpGetWithRetry(url)
 	if err != nil {
 		return nil, err
 	}

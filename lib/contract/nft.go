@@ -2,6 +2,7 @@
 package contract
 
 import (
+	"bytes"
 	"context"
 	_ "embed"
 	"encoding/binary"
@@ -11,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/libsv/go-bk/bec"
+	"github.com/libsv/go-bk/crypto"
 	bt "github.com/sCrypt-Inc/go-bt/v2"
 	"github.com/sCrypt-Inc/go-bt/v2/bscript"
 	"github.com/sCrypt-Inc/go-bt/v2/sighash"
@@ -271,6 +273,40 @@ func (u *nftIn1Unlocker) UnlockingScript(ctx context.Context, tx *bt.Tx, p bt.Un
 	return bscript.NewP2PKHUnlockingScript(u.priv.PubKey().SerialiseCompressed(), sig.Serialise(), p.SigHashFlags)
 }
 
+// p2pkhOrMintPrefixUnlocker 用于 createNFT / batchCreateNFT 首笔 mint 输入：锁定脚本为 P2PKH + OP_RETURN 后缀，
+// IsP2PKH() 为 false，unlocker.Simple 会报 currently only p2pkh supported；此处按 PublicKeyHash 提取后与 JS setInputScript 一致。
+type p2pkhOrMintPrefixUnlocker struct{ priv *bec.PrivateKey }
+
+func (u *p2pkhOrMintPrefixUnlocker) UnlockingScript(ctx context.Context, tx *bt.Tx, p bt.UnlockerParams) (*bscript.Script, error) {
+	if p.SigHashFlags == 0 {
+		p.SigHashFlags = sighash.AllForkID
+	}
+	prevScript := tx.Inputs[p.InputIdx].PreviousTxScript
+	pkh, err := prevScript.PublicKeyHash()
+	if err != nil {
+		return nil, err
+	}
+	keyPKH := crypto.Hash160(u.priv.PubKey().SerialiseCompressed())
+	if !bytes.Equal(pkh, keyPKH) {
+		return bscript.NewFromBytes(nil), nil
+	}
+	sh, err := tx.CalcInputSignatureHash(p.InputIdx, p.SigHashFlags)
+	if err != nil {
+		return nil, err
+	}
+	sig, err := u.priv.Sign(sh)
+	if err != nil {
+		return nil, err
+	}
+	return bscript.NewP2PKHUnlockingScript(u.priv.PubKey().SerialiseCompressed(), sig.Serialise(), p.SigHashFlags)
+}
+
+type p2pkhOrMintPrefixUnlockerGetter struct{ priv *bec.PrivateKey }
+
+func (g *p2pkhOrMintPrefixUnlockerGetter) Unlocker(ctx context.Context, lockingScript *bscript.Script) (bt.Unlocker, error) {
+	return &p2pkhOrMintPrefixUnlocker{priv: g.priv}, nil
+}
+
 type nftTransferUnlockerGetter struct {
 	priv          *bec.PrivateKey
 	preTx, prePre *bt.Tx
@@ -316,7 +352,7 @@ func CreateCollection(address string, priv *bec.PrivateKey, data *CollectionData
 		}
 		tx.AddOutput(&bt.Output{LockingScript: ms, Satoshis: 100})
 	}
-	if err := tx.ChangeToAddress(addr.AddressString, newFeeQuote80()); err != nil {
+	if err := tx.ChangeToAddress(addr.AddressString, newFeeQuoteNFT()); err != nil {
 		return "", err
 	}
 	ctx := context.Background()
@@ -357,11 +393,11 @@ func CreateNFT(collectionID string, address string, priv *bec.PrivateKey, data *
 	tx.AddOutput(&bt.Output{LockingScript: code, Satoshis: 200})
 	tx.AddOutput(&bt.Output{LockingScript: hold, Satoshis: 100})
 	tx.AddOutput(&bt.Output{LockingScript: tape, Satoshis: 0})
-	if err := tx.ChangeToAddress(addr.AddressString, newFeeQuote80()); err != nil {
+	if err := tx.ChangeToAddress(addr.AddressString, newFeeQuoteNFT()); err != nil {
 		return "", err
 	}
 	ctx := context.Background()
-	if err := tx.FillAllInputs(ctx, &unlocker.Getter{PrivateKey: priv}); err != nil {
+	if err := tx.FillAllInputs(ctx, &p2pkhOrMintPrefixUnlockerGetter{priv: priv}); err != nil {
 		return "", err
 	}
 	return hex.EncodeToString(tx.Bytes()), nil
@@ -431,10 +467,10 @@ func BatchCreateNFT(collectionID string, address string, priv *bec.PrivateKey, d
 		tx.AddOutput(&bt.Output{LockingScript: code, Satoshis: 200})
 		tx.AddOutput(&bt.Output{LockingScript: hold, Satoshis: 100})
 		tx.AddOutput(&bt.Output{LockingScript: tape, Satoshis: 0})
-		if err := tx.ChangeToAddress(addr.AddressString, newFeeQuote80()); err != nil {
+		if err := tx.ChangeToAddress(addr.AddressString, newFeeQuoteNFT()); err != nil {
 			return nil, err
 		}
-		if err := tx.FillAllInputs(ctx, &unlocker.Getter{PrivateKey: priv}); err != nil {
+		if err := tx.FillAllInputs(ctx, &p2pkhOrMintPrefixUnlockerGetter{priv: priv}); err != nil {
 			return nil, err
 		}
 		prevTx, err = bt.NewTxFromString(hex.EncodeToString(tx.Bytes()))
@@ -476,11 +512,11 @@ func (n *NFT) TransferNFT(addressFrom, addressTo string, priv *bec.PrivateKey, u
 	tx.AddOutput(&bt.Output{LockingScript: hold, Satoshis: 100})
 	tx.AddOutput(&bt.Output{LockingScript: tape, Satoshis: 0})
 	if !batch {
-		if err := tx.ChangeToAddress(addressFrom, newFeeQuote80()); err != nil {
+		if err := tx.ChangeToAddress(addressFrom, newFeeQuoteNFT()); err != nil {
 			return "", err
 		}
 	} else if len(utxos) > 0 {
-		if err := tx.ChangeToAddress(addressFrom, newFeeQuote80()); err != nil {
+		if err := tx.ChangeToAddress(addressFrom, newFeeQuoteNFT()); err != nil {
 			return "", err
 		}
 	}
@@ -532,7 +568,7 @@ func (n *NFT) TransferNFTWithTBC(addressFrom, addressToNft, addressToTbc string,
 	if err := tx.PayToAddress(addressToTbc, sat); err != nil {
 		return "", err
 	}
-	if err := tx.ChangeToAddress(addressFrom, newFeeQuote80()); err != nil {
+	if err := tx.ChangeToAddress(addressFrom, newFeeQuoteNFT()); err != nil {
 		return "", err
 	}
 	ctx := context.Background()
@@ -572,7 +608,7 @@ func (n *NFT) TransferNFTV0(addressFrom, addressTo string, priv *bec.PrivateKey,
 	tx.AddOutput(&bt.Output{LockingScript: code, Satoshis: 200})
 	tx.AddOutput(&bt.Output{LockingScript: hold, Satoshis: 100})
 	tx.AddOutput(&bt.Output{LockingScript: tape, Satoshis: 0})
-	if err := tx.ChangeToAddress(addressFrom, newFeeQuote80()); err != nil {
+	if err := tx.ChangeToAddress(addressFrom, newFeeQuoteNFT()); err != nil {
 		return "", err
 	}
 	ctx := context.Background()

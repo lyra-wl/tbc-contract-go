@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,6 +19,47 @@ import (
 )
 
 var defaultHTTPClient = &http.Client{Timeout: 30 * time.Second}
+
+func isRetryableHTTPGetErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	var ne net.Error
+	if errors.As(err, &ne) && ne.Timeout() {
+		return true
+	}
+	if errors.Is(err, io.EOF) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "eof") ||
+		strings.Contains(msg, "connection reset") ||
+		strings.Contains(msg, "broken pipe") ||
+		strings.Contains(msg, "tls handshake") ||
+		strings.Contains(msg, "connection refused") ||
+		strings.Contains(msg, "server closed") ||
+		strings.Contains(msg, "unexpected eof")
+}
+
+// httpGetWithRetry retries GET on transient transport errors (e.g. api.tbcdev.org closing with EOF).
+func httpGetWithRetry(url string) (*http.Response, error) {
+	const maxAttempts = 4
+	var lastErr error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		if attempt > 0 {
+			time.Sleep(time.Duration(300*attempt) * time.Millisecond)
+		}
+		resp, err := defaultHTTPClient.Get(url)
+		if err == nil {
+			return resp, nil
+		}
+		lastErr = err
+		if !isRetryableHTTPGetErr(err) {
+			return nil, err
+		}
+	}
+	return nil, lastErr
+}
 
 const (
 	mainnetAPIURL = "https://api.turingbitchain.io/api/tbc/"
@@ -70,19 +114,53 @@ type broadcastResponse struct {
 	Error   string `json:"error"`
 }
 
+// FlexStringOrNumber unmarshals a JSON value that may be either a string or a number
+// (e.g. recentblocks API returns difficulty as a number on some networks).
+type FlexStringOrNumber string
+
+func (f *FlexStringOrNumber) UnmarshalJSON(b []byte) error {
+	b = bytes.TrimSpace(b)
+	if len(b) == 0 || bytes.Equal(b, []byte("null")) {
+		*f = ""
+		return nil
+	}
+	if b[0] == '"' {
+		var s string
+		if err := json.Unmarshal(b, &s); err != nil {
+			return err
+		}
+		*f = FlexStringOrNumber(s)
+		return nil
+	}
+	var num json.Number
+	if err := json.Unmarshal(b, &num); err == nil {
+		*f = FlexStringOrNumber(num.String())
+		return nil
+	}
+	var v float64
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
+	*f = FlexStringOrNumber(strconv.FormatFloat(v, 'f', -1, 64))
+	return nil
+}
+
+// String returns the decoded scalar as text.
+func (f FlexStringOrNumber) String() string { return string(f) }
+
 type BlockHeaderInfo struct {
-	Hash              string `json:"hash"`
-	Confirmations     int    `json:"confirmations"`
-	Height            int    `json:"height"`
-	Version           int    `json:"version"`
-	VersionHex        string `json:"versionHex"`
-	MerkleRoot        string `json:"merkleroot"`
-	Time              int64  `json:"time"`
-	Nonce             uint32 `json:"nonce"`
-	Bits              string `json:"bits"`
-	Difficulty        string `json:"difficulty"`
-	PreviousBlockHash string `json:"previoushash"`
-	NextBlockHash     string `json:"nexthash"`
+	Hash              string             `json:"hash"`
+	Confirmations     int                `json:"confirmations"`
+	Height            int                `json:"height"`
+	Version           int                `json:"version"`
+	VersionHex        string             `json:"versionHex"`
+	MerkleRoot        string             `json:"merkleroot"`
+	Time              int64              `json:"time"`
+	Nonce             uint32             `json:"nonce"`
+	Bits              string             `json:"bits"`
+	Difficulty        FlexStringOrNumber `json:"difficulty"`
+	PreviousBlockHash string             `json:"previoushash"`
+	NextBlockHash     string             `json:"nexthash"`
 }
 
 type blockHeadersResponse struct {
@@ -130,7 +208,7 @@ func GetTBCBalance(address, network string) (uint64, error) {
 	baseURL := getBaseURL(network)
 	url := fmt.Sprintf("%sbalance/address/%s", baseURL, address)
 
-	resp, err := defaultHTTPClient.Get(url)
+	resp, err := httpGetWithRetry(url)
 	if err != nil {
 		return 0, fmt.Errorf("请求余额接口失败: %w", err)
 	}
@@ -153,7 +231,7 @@ func FetchUTXO(address string, amountTBC float64, network string) (*bt.UTXO, err
 	baseURL := getBaseURL(network)
 	url := fmt.Sprintf("%sutxo/address/%s", baseURL, address)
 
-	resp, err := defaultHTTPClient.Get(url)
+	resp, err := httpGetWithRetry(url)
 	if err != nil {
 		return nil, fmt.Errorf("请求 UTXO 接口失败: %w", err)
 	}
@@ -279,7 +357,7 @@ func FetchTXRaw(txid, network string) (*bt.Tx, error) {
 	baseURL := getBaseURL(network)
 	url := fmt.Sprintf("%stxraw/txid/%s", baseURL, txid)
 
-	resp, err := defaultHTTPClient.Get(url)
+	resp, err := httpGetWithRetry(url)
 	if err != nil {
 		return nil, fmt.Errorf("请求 TXRaw 接口失败: %w", err)
 	}
@@ -322,7 +400,7 @@ func FetchTXRawHex(txid, network string) (string, error) {
 	baseURL := getBaseURL(network)
 	url := fmt.Sprintf("%stxraw/txid/%s", baseURL, txid)
 
-	resp, err := defaultHTTPClient.Get(url)
+	resp, err := httpGetWithRetry(url)
 	if err != nil {
 		return "", fmt.Errorf("请求 TXRaw 接口失败: %w", err)
 	}
@@ -362,7 +440,7 @@ func IsTxOnChain(txid, network string) (bool, error) {
 	baseURL := getBaseURL(network)
 	url := fmt.Sprintf("%stxraw/txid/%s", baseURL, txid)
 
-	resp, err := defaultHTTPClient.Get(url)
+	resp, err := httpGetWithRetry(url)
 	if err != nil {
 		return false, fmt.Errorf("请求 TXRaw 接口失败: %w", err)
 	}
@@ -383,7 +461,7 @@ func FetchUTXOs(address, network string) (bt.UTXOs, error) {
 	baseURL := getBaseURL(network)
 	url := fmt.Sprintf("%sutxo/address/%s", baseURL, address)
 
-	resp, err := defaultHTTPClient.Get(url)
+	resp, err := httpGetWithRetry(url)
 	if err != nil {
 		return nil, fmt.Errorf("请求 UTXO 接口失败: %w", err)
 	}
@@ -491,7 +569,7 @@ func FetchBlockHeaders(network string) ([]BlockHeaderInfo, error) {
 	baseURL := getBaseURL(network)
 	url := fmt.Sprintf("%srecentblocks/start/0/end/1", baseURL)
 
-	resp, err := defaultHTTPClient.Get(url)
+	resp, err := httpGetWithRetry(url)
 	if err != nil {
 		return nil, fmt.Errorf("请求区块头接口失败: %w", err)
 	}

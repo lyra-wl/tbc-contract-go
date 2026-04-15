@@ -129,10 +129,9 @@ func (f *FT) MintFT(privKey *bec.PrivateKey, addressTo string, utxo *bt.UTXO) ([
 
 	feeQuote := newFeeQuote80()
 	_ = txSource.ChangeToAddress(addr.AddressString, feeQuote)
-	// 对齐 ft.ts：getEstimateSize()<1000 用 fee(80)，否则 feePerKb(80)；纯 per-KB 会低估小交易手续费。
 	satPerKB := feeSatPerKBFromEnv()
-	estSource := tbcJSEstimateTxBytes(txSource)
-	if err := adjustChangeOutputToTargetFee(txSource, mintSourceTargetFeeSat(satPerKB, estSource)); err != nil {
+	estSource := txSource.JSEstimateSize()
+	if err := txSource.AdjustImplicitFeeToTarget(mintSourceTargetFeeSat(satPerKB, estSource)); err != nil {
 		return nil, err
 	}
 
@@ -867,26 +866,9 @@ func (u *fixedScriptUnlocker) UnlockingScript(ctx context.Context, tx *bt.Tx, pa
 	return u.script, nil
 }
 
-// tbcJSEstimateTxBytes 复刻 tbc-lib-js transaction.js 的 Transaction._estimateSize：
-// 4+4 + varint(nIn)+varint(nOut) + 各 input._estimateSize + 各 output.getSize（8+varint(len)+script）。
-// 非 P2PKH 输入按空 scriptSig 计 41 字节；P2PKH 按 PublicKeyHashInput 180 字节（BASE 40 + SCRIPT_MAX 140）。
-// 不用 tx.Clone()+Size()，避免与 JS 逐项公式差几十～近千字节导致与 ft.js feePerKb 找零不一致。
+// tbcJSEstimateTxBytes 委托 tbc-lib-go 的 (*bt.Tx).JSEstimateSize()（与 tbc-lib-js _estimateSize 一致）。
 func tbcJSEstimateTxBytes(tx *bt.Tx) int {
-	sz := 8
-	sz += bt.VarInt(uint64(len(tx.Inputs))).Length()
-	sz += bt.VarInt(uint64(len(tx.Outputs))).Length()
-	for _, in := range tx.Inputs {
-		if in.PreviousTxScript != nil && in.PreviousTxScript.IsP2PKH() {
-			sz += 180
-		} else {
-			sz += 41
-		}
-	}
-	for _, out := range tx.Outputs {
-		l := out.LockingScript.Len()
-		sz += 8 + bt.VarInt(uint64(l)).Length() + l
-	}
-	return sz
+	return tx.JSEstimateSize()
 }
 
 // ftInputUnlockWireDeltaFromEmpty 将「空 scriptSig」输入（36+varint(0)+0+4=41）换成「长 L 的 scriptSig」时，
@@ -900,8 +882,8 @@ func ftInputUnlockWireDeltaFromEmpty(unlockLen int) int {
 	return unlockLen + vi - 1
 }
 
-// adjustFTTransferChangeFee：在 ChangeToAddress 之后、签名之前，把隐式手续费调到 targetFee。
-// tbcJSEstimateTxBytes 与 JS 在 change()/feePerKb 时刻一致：FT 输入 scriptSig 仍空，Input._estimateSize≈41B。
+// adjustFTTransferChangeFee：在写入 TBC 找零输出之后、签名之前，把隐式手续费调到 targetFee（与 tbc-lib-js 一致）。
+// 体积估算用 (*bt.Tx).JSEstimateSize()：FT 输入 scriptSig 仍空，Input._estimateSize≈41B。
 // JS 里 setInputScript(fn) 会立刻执行回调并 setScript，故 seal() 里 _updateChangeOutput → getFee 时
 // FT 输入已是真实线长；此处用 ftUnlockLens（每笔 getFTunlock 的 Len）按 ftInputUnlockWireDeltaFromEmpty 补足。
 // 若 ftUnlockLens 长度与 nFt 不一致则回退到 FT_SIGNED_UNLOCK_BYTES（默认 960）。
@@ -910,7 +892,7 @@ func adjustFTTransferChangeFee(tx *bt.Tx, satPerKB, nFt int, ftUnlockLens []int)
 	if len(tx.Outputs) == 0 {
 		return nil
 	}
-	sealedBytes := tbcJSEstimateTxBytes(tx)
+	sealedBytes := tx.JSEstimateSize()
 	useMeasured := nFt > 0 && len(ftUnlockLens) == nFt
 	ftUnlockDefault := 960
 	if v := strings.TrimSpace(os.Getenv("FT_SIGNED_UNLOCK_BYTES")); v != "" {
@@ -957,7 +939,7 @@ func adjustFTTransferChangeFee(tx *bt.Tx, satPerKB, nFt int, ftUnlockLens []int)
 		}
 	}
 
-	return adjustChangeOutputToTargetFee(tx, targetFee)
+	return tx.AdjustImplicitFeeToTarget(targetFee)
 }
 
 // mintSourceTargetFeeSat 与 tbc-contract/lib/contract/ft.ts Mint 中 source 手续费一致：
@@ -967,27 +949,6 @@ func mintSourceTargetFeeSat(satPerKB, estBytes int) int {
 		return satPerKB
 	}
 	return int(math.Ceil(float64(estBytes) * float64(satPerKB) / 1000.0))
-}
-
-// adjustChangeOutputToTargetFee 通过调整最后一笔找零使 (inputs−outputs) 等于 targetFee。
-func adjustChangeOutputToTargetFee(tx *bt.Tx, targetFee int) error {
-	if len(tx.Outputs) == 0 {
-		return nil
-	}
-	in := tx.TotalInputSatoshis()
-	out := tx.TotalOutputSatoshis()
-	oldFee := int(in - out)
-	delta := targetFee - oldFee
-	if delta == 0 {
-		return nil
-	}
-	last := len(tx.Outputs) - 1
-	newSat := int64(tx.Outputs[last].Satoshis) - int64(delta)
-	if newSat <= int64(bt.DustLimit) {
-		return fmt.Errorf("adjustChangeOutputToTargetFee: change would be dust (delta=%d, targetFee=%d, oldFee=%d)", delta, targetFee, oldFee)
-	}
-	tx.Outputs[last].Satoshis = uint64(newSat)
-	return nil
 }
 
 func (f *FT) getFTunlock(privKey *bec.PrivateKey, tx *bt.Tx, preTX *bt.Tx, prepreTxData string, inputIdx, preTxVout int) (*bscript.Script, error) {
@@ -1312,9 +1273,18 @@ func feeSatPerKBFromEnv() int {
 	return satPerKB
 }
 
-// newFeeQuote80 默认每 KB 80 sat，与 tbc-contract/lib/contract/ft.js 中 feePerKb(80) 一致；可通过 FT_FEE_SAT_PER_KB 覆盖。
-func newFeeQuote80() *bt.FeeQuote {
-	satPerKB := feeSatPerKBFromEnv()
+// nftFeeSatPerKBFromEnv NFT 合约路径（合集 OP_RETURN 较大）：NFT_FEE_SAT_PER_KB 优先，否则与 FT 共用 feeSatPerKBFromEnv。
+// 测试网广播若报 66 insufficient priority，可设 NFT_FEE_SAT_PER_KB=500（与 ft.md 中可调 fee 思路一致）。
+func nftFeeSatPerKBFromEnv() int {
+	if v := strings.TrimSpace(os.Getenv("NFT_FEE_SAT_PER_KB")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return feeSatPerKBFromEnv()
+}
+
+func newFeeQuoteWithSatPerKB(satPerKB int) *bt.FeeQuote {
 	fq := bt.NewFeeQuote()
 	fq.AddQuote(bt.FeeTypeStandard, &bt.Fee{
 		FeeType:   bt.FeeTypeStandard,
@@ -1327,6 +1297,16 @@ func newFeeQuote80() *bt.FeeQuote {
 		RelayFee:  bt.FeeUnit{Satoshis: satPerKB, Bytes: 1000},
 	})
 	return fq
+}
+
+// newFeeQuote80 默认每 KB 80 sat，与 tbc-contract/lib/contract/ft.js 中 feePerKb(80) 一致；可通过 FT_FEE_SAT_PER_KB 覆盖。
+func newFeeQuote80() *bt.FeeQuote {
+	return newFeeQuoteWithSatPerKB(feeSatPerKBFromEnv())
+}
+
+// newFeeQuoteNFT 用于 NFT.createCollection / createNFT / transfer 等；费率见 nftFeeSatPerKBFromEnv。
+func newFeeQuoteNFT() *bt.FeeQuote {
+	return newFeeQuoteWithSatPerKB(nftFeeSatPerKBFromEnv())
 }
 
 func hexDecode(s string) []byte {
@@ -1374,4 +1354,3 @@ func signP2PKHInput(tx *bt.Tx, privKey *bec.PrivateKey, inputIdx uint32) error {
 	}
 	return tx.InsertInputUnlockingScript(inputIdx, us)
 }
-
