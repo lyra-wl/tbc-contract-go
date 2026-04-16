@@ -204,9 +204,34 @@ func isBroadcastAlreadyKnownErr(msg string) bool {
 		strings.Contains(m, "tx-already-in-mempool")
 }
 
+// indexerP2PKHLookupAddress 公网测试索引（如 api.tbcdev.org）上 balance/address、utxo/address
+// 对测试网 base58（m/n 前缀）常返回空；与链上脚本一致的同一 pubkeyHash 的 legacy 主网形态（1…）可查到数据。
+// 与 tbc-lib-js 从同一私钥得到的两种编码对应同一 UTXO 集。自定义 http(s) API 根时不改写。
+func indexerP2PKHLookupAddress(network, address string) string {
+	if strings.HasPrefix(network, "http://") || strings.HasPrefix(network, "https://") {
+		return address
+	}
+	if network != "testnet" {
+		return address
+	}
+	a, err := bscript.NewAddressFromString(address)
+	if err != nil {
+		return address
+	}
+	pkh, err := hex.DecodeString(a.PublicKeyHash)
+	if err != nil || len(pkh) != 20 {
+		return address
+	}
+	main, err := bscript.NewAddressFromPublicKeyHash(pkh, true)
+	if err != nil {
+		return address
+	}
+	return main.AddressString
+}
+
 func GetTBCBalance(address, network string) (uint64, error) {
 	baseURL := getBaseURL(network)
-	url := fmt.Sprintf("%sbalance/address/%s", baseURL, address)
+	url := fmt.Sprintf("%sbalance/address/%s", baseURL, indexerP2PKHLookupAddress(network, address))
 
 	resp, err := httpGetWithRetry(url)
 	if err != nil {
@@ -229,7 +254,7 @@ func GetTBCBalance(address, network string) (uint64, error) {
 
 func fetchUTXOInternal(address string, amountTBC float64, network string) (*bt.UTXO, string, error) {
 	baseURL := getBaseURL(network)
-	url := fmt.Sprintf("%sutxo/address/%s", baseURL, address)
+	url := fmt.Sprintf("%sutxo/address/%s", baseURL, indexerP2PKHLookupAddress(network, address))
 
 	resp, err := httpGetWithRetry(url)
 	if err != nil {
@@ -470,7 +495,7 @@ func IsTxOnChain(txid, network string) (bool, error) {
 
 func FetchUTXOs(address, network string) (bt.UTXOs, error) {
 	baseURL := getBaseURL(network)
-	url := fmt.Sprintf("%sutxo/address/%s", baseURL, address)
+	url := fmt.Sprintf("%sutxo/address/%s", baseURL, indexerP2PKHLookupAddress(network, address))
 
 	resp, err := httpGetWithRetry(url)
 	if err != nil {

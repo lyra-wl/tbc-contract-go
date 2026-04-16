@@ -8,10 +8,10 @@
 //	cd ~/path/to/tbc-contract-go
 //	export RUN_REAL_OB_TEST=1
 //	export TBC_PRIVATE_KEY=你的WIF
+//	# 与 orderBook.test.ts resolveNetwork() 一致：优先 TBC_API_BASE，否则 TBC_NETWORK；http(s) 根 URL 会自动补尾斜杠
 //	export TBC_NETWORK=testnet
-//	# 与 orderBook.test.ts / 根目录 test.ts 一致：也可用完整索引根 URL（须能被 api.getBaseURL 识别，建议带尾斜杠）
+//	# export TBC_API_BASE=https://testnetlocal.tbcdev.org/api/tbc/
 //	# export TBC_NETWORK=https://api.tbcdev.org/api/tbc/
-//	# export TBC_NETWORK=https://testnetlocal.tbcdev.org/api/tbc/
 //	export OB_FT_CONTRACT_TXID=FT合约txid
 //	export OB_TAX_ADDRESS=税费收取地址
 //
@@ -48,11 +48,15 @@
 //	# ---- 与仓库根目录 test.ts（orderBook.test.ts 参数）一致的一键流程：卖单 → 买单 → 撮合 ----
 //	export RUN_REAL_OB_TEST=1
 //	export TBC_NETWORK=testnet
-//	# JS 侧若设置 TBC_API_BASE 或 http(s) 的 TBC_NETWORK，Go 侧请设同一字符串为 TBC_NETWORK
+//	# JS 侧 TBC_API_BASE 或 http(s) TBC_NETWORK：Go 侧可用同名环境变量（本文件 resolveNetworkOB 与 JS 对齐）
 //	# 可选覆盖 WIF（默认与 test.ts 相同）：OB_SELL_WIF OB_BUY_WIF OB_MATCH_WIF
-//	# 可选覆盖数值：OB_JS_UNIT_PRICE OB_JS_SELL_VOLUME OB_JS_BUY_VOLUME OB_JS_FEE_RATE
+//	# 可选覆盖数值：OB_JS_UNIT_PRICE OB_JS_SELL_VOLUME OB_JS_BUY_VOLUME OB_JS_FEE_RATE（默认 sell/buy=1e5 与根目录 test.ts 一致）
 //	# 可选覆盖合约与地址：OB_FT_CONTRACT_TXID OB_TAX_ADDRESS OB_FT_FEE_ADDRESS OB_TBC_FEE_ADDRESS
 //	go test -tags=integration -v ./lib/contract -run TestOrderBook_Integration_FullFlowJSAligned -count=1
+//
+//	# ---- 撮合仅构建、与 JS 对比（写入 testdata/orderbook_test.json）----
+//	# 根目录先：npm run orderbook-match-offline-dump
+//	RUN_REAL_OB_TEST=1 go test -tags=integration -v ./lib/contract -run TestOrderBook_Integration_MatchOfflineCompare -count=1
 package contract
 
 import (
@@ -108,13 +112,13 @@ func loadFtCodeScript(t *testing.T, ftContractTxid, network string) string {
 	return info.CodeScript
 }
 
-// 与仓库根目录 test.ts 对齐的默认参数（orderBook.test.ts / JS 成功路径）。
+// 与仓库根目录 test.ts / orderbook_accounts.json 对齐的默认参数（测试网 OBTest 铸币 + 注资后可用）。
 const (
-	obJSDefaultFTContract = "a2a7386f8093378a8517e1b808b2101da099a6a0e10c9dfb22fc402d55ee18b8"
-	obJSDefaultTaxAddress = "1FdT4hseBZBh6R5XkfLaSpSjuT4Jav9tL6"
-	obJSDefaultFeeAddress = "1FdT4hseBZBh6R5XkfLaSpSjuT4Jav9tL6"
-	obJSDefaultSellWIF    = "KyyyNMmvYK7oJiqmmfnPgzaJUCEu9oBd6SvGPd9aqgRxTvx7C51i"
-	obJSDefaultBuyWIF     = "KwkwVwrgkkizfuEgYLkWq3H8ymY8GVuXC46Tbjehw8ZzRXqFBmAq"
+	obJSDefaultFTContract = "ecebdaa8e38c84da46041216d750b0fba3740309117106ed4e8aaf671e099524"
+	obJSDefaultTaxAddress = "143KgKGcse57nXBnXyJwtQrf2KP4KWto59"
+	obJSDefaultFeeAddress = "143KgKGcse57nXBnXyJwtQrf2KP4KWto59"
+	obJSDefaultSellWIF    = "cTiQDWaog52je6icfifLL3xK3GsH1ECHyp2cqvBW9yonv9DuoRus"
+	obJSDefaultBuyWIF     = "cSFnsVKtRfpn8xUvzb78wzyBNMpCYmz4gM6jzMPuLzJDG1sDYmSf"
 	obJSDefaultMatchWIF   = "L1u2TmR7hMMMSV9Bx2Lyt3sujbboqEFqnKygnPRnQERhKB4qptuK"
 )
 
@@ -137,11 +141,40 @@ func obWIFEnvOrDefault(t *testing.T, envKey, defaultWIF string) *bec.PrivateKey 
 	return obMustDecodeWIF(t, s)
 }
 
+// resolveNetworkOB 与仓库根目录 orderBook.test.ts 中 resolveNetwork() 行为一致：
+// 优先 TBC_API_BASE，否则 TBC_NETWORK；http(s) 时补全尾斜杠；否则仅接受 mainnet/testnet；其它或全空则 defaultNetwork（testnet）。
+func resolveNetworkOB() string {
+	raw := strings.TrimSpace(os.Getenv("TBC_API_BASE"))
+	if raw == "" {
+		raw = strings.TrimSpace(os.Getenv("TBC_NETWORK"))
+	}
+	if strings.HasPrefix(raw, "http://") || strings.HasPrefix(raw, "https://") {
+		if !strings.HasSuffix(raw, "/") {
+			return raw + "/"
+		}
+		return raw
+	}
+	switch raw {
+	case "mainnet", "testnet":
+		return raw
+	default:
+		return defaultNetwork
+	}
+}
+
+// orderBookIntegrationNetwork 解析网络并打印一行日志，便于与 JS 侧对照。
+func orderBookIntegrationNetwork(t *testing.T) string {
+	t.Helper()
+	n := resolveNetworkOB()
+	t.Logf("network (API.fetch / broadcast): %s", n)
+	return n
+}
+
 // ===== 1. 创建卖单 =====
 
 func TestOrderBook_Integration_MakeSellOrder(t *testing.T) {
 	requireRealOBRun(t)
-	network := mustEnvOrConst(t, "TBC_NETWORK", defaultNetwork)
+	network := orderBookIntegrationNetwork(t)
 	privKey := loadPrivKey(t)
 	ftContractTxid := mustEnv(t, "OB_FT_CONTRACT_TXID")
 	taxAddress := mustEnv(t, "OB_TAX_ADDRESS")
@@ -193,7 +226,7 @@ func TestOrderBook_Integration_MakeSellOrder(t *testing.T) {
 
 func TestOrderBook_Integration_CancelSellOrder(t *testing.T) {
 	requireRealOBRun(t)
-	network := mustEnvOrConst(t, "TBC_NETWORK", defaultNetwork)
+	network := orderBookIntegrationNetwork(t)
 	privKey := loadPrivKey(t)
 	sellOrderTxid := mustEnv(t, "OB_SELL_ORDER_TXID")
 
@@ -255,7 +288,7 @@ func TestOrderBook_Integration_CancelSellOrder(t *testing.T) {
 
 func TestOrderBook_Integration_MakeBuyOrder(t *testing.T) {
 	requireRealOBRun(t)
-	network := mustEnvOrConst(t, "TBC_NETWORK", defaultNetwork)
+	network := orderBookIntegrationNetwork(t)
 	privKey := loadPrivKey(t)
 	ftContractTxid := mustEnv(t, "OB_FT_CONTRACT_TXID")
 	taxAddress := mustEnv(t, "OB_TAX_ADDRESS")
@@ -342,7 +375,7 @@ func TestOrderBook_Integration_MakeBuyOrder(t *testing.T) {
 
 func TestOrderBook_Integration_CancelBuyOrder(t *testing.T) {
 	requireRealOBRun(t)
-	network := mustEnvOrConst(t, "TBC_NETWORK", defaultNetwork)
+	network := orderBookIntegrationNetwork(t)
 	privKey := loadPrivKey(t)
 	buyOrderTxid := mustEnv(t, "OB_BUY_ORDER_TXID")
 
@@ -432,7 +465,7 @@ func TestOrderBook_Integration_CancelBuyOrder(t *testing.T) {
 
 func TestOrderBook_Integration_MatchOrder(t *testing.T) {
 	requireRealOBRun(t)
-	network := mustEnvOrConst(t, "TBC_NETWORK", defaultNetwork)
+	network := orderBookIntegrationNetwork(t)
 	privKey := loadPrivKey(t)
 	ftContractTxid := mustEnv(t, "OB_FT_CONTRACT_TXID")
 	sellOrderTxid := mustEnv(t, "OB_SELL_ORDER_TXID")
@@ -542,10 +575,10 @@ func TestOrderBook_Integration_MatchOrder(t *testing.T) {
 }
 
 // TestOrderBook_Integration_FullFlowJSAligned 与仓库根目录 test.ts 一致：
-// sellWIF 挂卖单 → buyWIF 挂买单 → matchWIF 仅作撮合签名；数值默认 unitPrice/sellVolume/buyVolume=1000000，feeRate=1000（6 位精度）。
+// sellWIF 挂卖单 → buyWIF 挂买单 → matchWIF 仅作撮合签名；默认 unitPrice=1e6、sell/buyVolume=1e5、feeRate=1e3（6 位精度，小额便于测试网 UTXO）。
 func TestOrderBook_Integration_FullFlowJSAligned(t *testing.T) {
 	requireRealOBRun(t)
-	network := mustEnvOrConst(t, "TBC_NETWORK", defaultNetwork)
+	network := orderBookIntegrationNetwork(t)
 
 	sellPriv := obWIFEnvOrDefault(t, "OB_SELL_WIF", obJSDefaultSellWIF)
 	buyPriv := obWIFEnvOrDefault(t, "OB_BUY_WIF", obJSDefaultBuyWIF)
@@ -557,19 +590,21 @@ func TestOrderBook_Integration_FullFlowJSAligned(t *testing.T) {
 	tbcFeeAddress := envOrDefault("OB_TBC_FEE_ADDRESS", obJSDefaultFeeAddress)
 
 	unitPrice := obEnvUint64(t, "OB_JS_UNIT_PRICE", 1000000)
-	sellVolume := obEnvUint64(t, "OB_JS_SELL_VOLUME", 1000000)
-	buyVolume := obEnvUint64(t, "OB_JS_BUY_VOLUME", 1000000)
+	sellVolume := obEnvUint64(t, "OB_JS_SELL_VOLUME", 100000)
+	buyVolume := obEnvUint64(t, "OB_JS_BUY_VOLUME", 100000)
 	feeRate := obEnvUint64(t, "OB_JS_FEE_RATE", 1000)
 
-	sellAddr, err := bscript.NewAddressFromPublicKey(sellPriv.PubKey(), true)
+	// 非 mainnet 时使用测试网地址形态（m/n），与 orderbook_accounts.json / tbc-lib-js 一致；TBC UTXO 查询在 lib/api 内映射 legacy 索引键。
+	addrMainnet := network == "mainnet"
+	sellAddr, err := bscript.NewAddressFromPublicKey(sellPriv.PubKey(), addrMainnet)
 	if err != nil {
 		t.Fatalf("sell 地址: %v", err)
 	}
-	buyAddr, err := bscript.NewAddressFromPublicKey(buyPriv.PubKey(), true)
+	buyAddr, err := bscript.NewAddressFromPublicKey(buyPriv.PubKey(), addrMainnet)
 	if err != nil {
 		t.Fatalf("buy 地址: %v", err)
 	}
-	matchAddr, err := bscript.NewAddressFromPublicKey(matchPriv.PubKey(), true)
+	matchAddr, err := bscript.NewAddressFromPublicKey(matchPriv.PubKey(), addrMainnet)
 	if err != nil {
 		t.Fatalf("match 地址: %v", err)
 	}
@@ -579,7 +614,7 @@ func TestOrderBook_Integration_FullFlowJSAligned(t *testing.T) {
 
 	ftInfo, err := api.FetchFtInfo(ftContractTxid, network)
 	if err != nil {
-		t.Skipf("跳过：无法拉取 FT 信息（请设置 OB_FT_CONTRACT_TXID 为当前测试网 API 可查的合约，与 test.ts 一致可用 a2a7386f…）: %v", err)
+		t.Skipf("跳过：无法拉取 FT 信息（设置 OB_FT_CONTRACT_TXID 或与 orderbook_accounts.json 同步的默认合约）: %v", err)
 	}
 	codeBuf, err := hex.DecodeString(ftInfo.CodeScript)
 	if err != nil || len(codeBuf) < 1856 {
@@ -737,7 +772,7 @@ func TestOrderBook_Integration_FullFlowJSAligned(t *testing.T) {
 
 func TestOrderBook_Integration_BuildSellOrder(t *testing.T) {
 	requireRealOBRun(t)
-	network := mustEnvOrConst(t, "TBC_NETWORK", defaultNetwork)
+	network := orderBookIntegrationNetwork(t)
 	privKey := loadPrivKey(t)
 	ftContractTxid := mustEnv(t, "OB_FT_CONTRACT_TXID")
 	taxAddress := mustEnv(t, "OB_TAX_ADDRESS")
