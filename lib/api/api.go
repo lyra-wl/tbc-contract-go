@@ -103,8 +103,8 @@ type txrawResponse struct {
 }
 
 type broadcastResponse struct {
-	Code    string `json:"code"`
-	Data    struct {
+	Code string `json:"code"`
+	Data struct {
 		TxID    string `json:"txid"`
 		Error   string `json:"error"`
 		Success int    `json:"success"`
@@ -227,28 +227,28 @@ func GetTBCBalance(address, network string) (uint64, error) {
 	return br.Data.Balance, nil
 }
 
-func FetchUTXO(address string, amountTBC float64, network string) (*bt.UTXO, error) {
+func fetchUTXOInternal(address string, amountTBC float64, network string) (*bt.UTXO, string, error) {
 	baseURL := getBaseURL(network)
 	url := fmt.Sprintf("%sutxo/address/%s", baseURL, address)
 
 	resp, err := httpGetWithRetry(url)
 	if err != nil {
-		return nil, fmt.Errorf("请求 UTXO 接口失败: %w", err)
+		return nil, "", fmt.Errorf("请求 UTXO 接口失败: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("UTXO 接口返回状态码 %d: %s", resp.StatusCode, string(body))
+		return nil, "", fmt.Errorf("UTXO 接口返回状态码 %d: %s", resp.StatusCode, string(body))
 	}
 
 	var ur utxoListResponse
 	if err := json.NewDecoder(resp.Body).Decode(&ur); err != nil {
-		return nil, fmt.Errorf("解析 UTXO 响应失败: %w", err)
+		return nil, "", fmt.Errorf("解析 UTXO 响应失败: %w", err)
 	}
 
 	if len(ur.Data.UTXOs) == 0 {
-		return nil, fmt.Errorf("该地址没有可用的 UTXO")
+		return nil, "", fmt.Errorf("该地址没有可用的 UTXO")
 	}
 
 	amountSatoshis := uint64(amountTBC * 1e6)
@@ -260,21 +260,22 @@ func FetchUTXO(address string, amountTBC float64, network string) (*bt.UTXO, err
 		}
 	}
 
+	apiTxid := strings.ToLower(strings.TrimSpace(selected.TxID))
 	txidBytes, err := hex.DecodeString(selected.TxID)
 	if err != nil {
-		return nil, fmt.Errorf("解码 txid 失败: %w", err)
+		return nil, "", fmt.Errorf("解码 txid 失败: %w", err)
 	}
 
 	chainTx, err := FetchTXRaw(selected.TxID, network)
 	if err != nil {
-		return nil, fmt.Errorf("拉取 UTXO 父交易以校准 script/金额失败: %w", err)
+		return nil, "", fmt.Errorf("拉取 UTXO 父交易以校准 script/金额失败: %w", err)
 	}
 	if selected.Index < 0 || selected.Index >= len(chainTx.Outputs) {
-		return nil, fmt.Errorf("UTXO vout %d 超出父交易输出数 %d", selected.Index, len(chainTx.Outputs))
+		return nil, "", fmt.Errorf("UTXO vout %d 超出父交易输出数 %d", selected.Index, len(chainTx.Outputs))
 	}
 	out := chainTx.Outputs[selected.Index]
 	if out.LockingScript == nil {
-		return nil, fmt.Errorf("链上输出 %s:%d 无 locking script", selected.TxID, selected.Index)
+		return nil, "", fmt.Errorf("链上输出 %s:%d 无 locking script", selected.TxID, selected.Index)
 	}
 
 	return &bt.UTXO{
@@ -282,7 +283,17 @@ func FetchUTXO(address string, amountTBC float64, network string) (*bt.UTXO, err
 		Vout:          uint32(selected.Index),
 		Satoshis:      out.Satoshis,
 		LockingScript: out.LockingScript,
-	}, nil
+	}, apiTxid, nil
+}
+
+func FetchUTXO(address string, amountTBC float64, network string) (*bt.UTXO, error) {
+	u, _, err := fetchUTXOInternal(address, amountTBC, network)
+	return u, err
+}
+
+// FetchUTXOWithAPITxID 与 FetchUTXO 相同，并返回节点接口中的 txid 字符串，便于与 tbc-lib-js UnspentOutput（txId）对齐。
+func FetchUTXOWithAPITxID(address string, amountTBC float64, network string) (*bt.UTXO, string, error) {
+	return fetchUTXOInternal(address, amountTBC, network)
 }
 
 func BroadcastTXRaw(txraw, network string) (string, error) {

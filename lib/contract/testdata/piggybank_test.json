@@ -1,0 +1,77 @@
+{
+  "howToRun": "设置与 cmd/piggy_freeze_run 相同的环境变量后执行 npm run piggy-compare；依赖 go 与 tbc-contract-go 模块。不广播。若 txId 字节序导致 JS 失败，脚本会尝试反转 txid 后重试。",
+  "alignmentGoVsPiggyBankTs": {
+    "freezeFee": "Go lib/contract/piggybank.go 中 FreezeTBC 与 piggyBank.ts 一致：add 定时锁前先 JSEstimateSize；fee = (est<1000 ? 80 : ceil(est/1000*80))；找零 = 输入总额 − 冻结额 − fee；冻结费率固定 80 sat/KB（与 TS 一致）。",
+    "transactionVersion": "Go newFTTx 与 tbc-lib-js Transaction 默认均为 version 10。"
+  },
+  "generatedAt": "2026-04-16T07:51:45.941Z",
+  "meta": {
+    "network": "testnet",
+    "lockTime": 39866,
+    "tbcNumber": 0.001,
+    "fetchUtxoAddress": "1P2toD4aKcUsxhTCbUjz5mcd3ajAJB9G1W",
+    "fetchAmountTbc": 0.101,
+    "extraTbc": 0.1,
+    "ftFeeSatPerKbEnv": "500"
+  },
+  "utxoForJs": {
+    "txId": "37a8d4ec0b44decc2c0c6b410d9ab93dbfd09726613e1d95c6db6319aa62c002",
+    "outputIndex": 1,
+    "satoshis": 9989997634,
+    "script": "76a914f1ae6bc0533700b21224c8427be48c596e902f2088ac",
+    "apiTxid": "37a8d4ec0b44decc2c0c6b410d9ab93dbfd09726613e1d95c6db6319aa62c002"
+  },
+  "go": {
+    "txRawHex": "0a0000000102c062aa1963dbc6951d3e612697d0bf3db99a0d416b0c2cccde440becd4a837010000006a47304402204656310f831f240329e3bae625d369840104096dccdaab19e08edf5d622746fd02204c0472d892f4d93aa37e14937a8699dbd2145cc15ac2fca651c1508a4901d3de4121029999c2ae5bb218695277a54e806330115207a3834667ebe37f86a2120d3d5b57ffffffff02e8030000000000003576a914f1ae6bc0533700b21224c8427be48c596e902f2088ad56ba01247f778104ffffffff819e518804ba9b00008152ba81a151870a407353020000001976a914f1ae6bc0533700b21224c8427be48c596e902f2088ac00000000",
+    "version": 10,
+    "inputsTotalSat": 9989997634,
+    "outputsTotalSat": 9989997554,
+    "impliedFeeSat": 80,
+    "outputs": [
+      {
+        "index": 0,
+        "satoshis": 1000,
+        "scriptHexLen": 106,
+        "scriptHex": "76a914f1ae6bc0533700b21224c8427be48c596e902f2088ad56ba01247f778104ffffffff819e518804ba9b00008152ba81a15187",
+        "likelyPiggyBankScript": true
+      },
+      {
+        "index": 1,
+        "satoshis": 9989996554,
+        "scriptHexLen": 50,
+        "scriptHex": "76a914f1ae6bc0533700b21224c8427be48c596e902f2088ac",
+        "likelyPiggyBankScript": false
+      }
+    ]
+  },
+  "js": {
+    "txRawHex": "0a0000000102c062aa1963dbc6951d3e612697d0bf3db99a0d416b0c2cccde440becd4a837010000006a47304402204656310f831f240329e3bae625d369840104096dccdaab19e08edf5d622746fd02204c0472d892f4d93aa37e14937a8699dbd2145cc15ac2fca651c1508a4901d3de4121029999c2ae5bb218695277a54e806330115207a3834667ebe37f86a2120d3d5b57ffffffff02e8030000000000003576a914f1ae6bc0533700b21224c8427be48c596e902f2088ad56ba01247f778104ffffffff819e518804ba9b00008152ba81a151870a407353020000001976a914f1ae6bc0533700b21224c8427be48c596e902f2088ac00000000",
+    "version": 10,
+    "inputsTotalSat": 9989997634,
+    "outputsTotalSat": 9989997554,
+    "impliedFeeSat": 80,
+    "outputs": [
+      {
+        "index": 0,
+        "satoshis": 1000,
+        "scriptHexLen": 106,
+        "scriptHex": "76a914f1ae6bc0533700b21224c8427be48c596e902f2088ad56ba01247f778104ffffffff819e518804ba9b00008152ba81a15187",
+        "likelyPiggyBankScript": true
+      },
+      {
+        "index": 1,
+        "satoshis": 9989996554,
+        "scriptHexLen": 50,
+        "scriptHex": "76a914f1ae6bc0533700b21224c8427be48c596e902f2088ac",
+        "likelyPiggyBankScript": false
+      }
+    ]
+  },
+  "analysis": {
+    "txRawHexIdentical": true,
+    "impliedFeeSatDiff": 0,
+    "changeOutputSatDiff": 0,
+    "versionMatch": true,
+    "notes": []
+  }
+}

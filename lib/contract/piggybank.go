@@ -35,6 +35,17 @@ func GetPiggyBankCode(address string, lockTime uint32) (*bscript.Script, error) 
 	return bscript.NewFromASM(asm)
 }
 
+// piggyFreezeFeeSatLikeJS 对齐 piggyBank.freezeTBC / _freezeTBC：在 addOutput(定时锁) 之前对当前交易调用 getEstimateSize，
+// fee = (size < 1000 ? 80 : ceil(size/1000*80))，费率固定 80 sat/KB（与 TS 一致，不读 FT_FEE_SAT_PER_KB）。
+func piggyFreezeFeeSatLikeJS(tx *bt.Tx) uint64 {
+	est := tx.JSEstimateSize()
+	const feePerKB = 80
+	if est < 1000 {
+		return 80
+	}
+	return uint64((int64(est)*feePerKB + 999) / 1000)
+}
+
 // FreezeTBC 对齐 piggyBank.freezeTBC，返回未签名交易 hex。
 func FreezeTBC(address string, tbcNumber float64, lockTime uint32, utxos []*bt.UTXO) (string, error) {
 	amt := util.ParseDecimalToBigInt(fmt.Sprintf("%g", tbcNumber), 6)
@@ -50,10 +61,21 @@ func FreezeTBC(address string, tbcNumber float64, lockTime uint32, utxos []*bt.U
 	if err := tx.FromUTXOs(utxos...); err != nil {
 		return "", err
 	}
+	feeSat := piggyFreezeFeeSatLikeJS(tx)
+	totalIn := tx.TotalInputSatoshis()
+	if totalIn < sat+feeSat {
+		return "", fmt.Errorf("insufficient inputs for freeze+fee: in=%d need>=%d", totalIn, sat+feeSat)
+	}
+	change := totalIn - sat - feeSat
+	if change <= uint64(bt.DustLimit) {
+		return "", fmt.Errorf("change would be dust after fee (change=%d fee=%d)", change, feeSat)
+	}
 	tx.AddOutput(&bt.Output{LockingScript: script, Satoshis: sat})
-	if err := tx.ChangeToAddress(address, newFeeQuote80()); err != nil {
+	changeScript, err := bscript.NewP2PKHFromAddress(address)
+	if err != nil {
 		return "", err
 	}
+	tx.AddOutput(&bt.Output{LockingScript: changeScript, Satoshis: change})
 	return hex.EncodeToString(tx.Bytes()), nil
 }
 
@@ -124,7 +146,18 @@ func FreezeTBCWithSign(priv *bec.PrivateKey, tbcNumber float64, lockTime uint32,
 	return hex.EncodeToString(tx.Bytes()), nil
 }
 
-// UnfreezeTBC 对齐 piggyBank.unfreezeTBC：设置 nLockTime 为当前链尖高度，输入 sequence=4294967294。
+// piggyUnfreezeFeeSatLikeJS 对齐 piggyBank.unfreezeTBC / _unfreezeTBC：在 from(utxos) 之后用 getEstimateSize()+100，
+// fee = (size < 1000 ? 80 : ceil(size/1000*80))，费率固定 80 sat/KB（与 TS 一致，不读 FT_FEE_SAT_PER_KB）。
+func piggyUnfreezeFeeSatLikeJS(tx *bt.Tx) uint64 {
+	est := tx.JSEstimateSize() + 100
+	const feePerKB = 80
+	if est < 1000 {
+		return 80
+	}
+	return uint64((int64(est)*feePerKB + 999) / 1000)
+}
+
+// UnfreezeTBC 对齐 piggyBank.unfreezeTBC：to(address, sum−fee) 与固定 fee（无 ChangeToAddress 二次计费），nLockTime 为链尖高度，sequence=4294967294。
 func UnfreezeTBC(address string, utxos []*bt.UTXO, network string) (string, error) {
 	if network == "" {
 		network = "mainnet"
@@ -144,14 +177,12 @@ func UnfreezeTBC(address string, utxos []*bt.UTXO, network string) (string, erro
 	if err := tx.FromUTXOs(utxos...); err != nil {
 		return "", err
 	}
-	fee := uint64(80)
-	if sum <= fee {
+	feeSat := piggyUnfreezeFeeSatLikeJS(tx)
+	if sum <= feeSat {
 		return "", fmt.Errorf("insufficient amount for fee")
 	}
-	if err := tx.PayToAddress(address, sum-fee); err != nil {
-		return "", err
-	}
-	if err := tx.ChangeToAddress(address, newFeeQuote80()); err != nil {
+	pay := sum - feeSat
+	if err := tx.PayToAddress(address, pay); err != nil {
 		return "", err
 	}
 	tx.LockTime = uint32(headers[0].Height)
@@ -206,6 +237,39 @@ func FetchTBCLockTime(scriptHex string) (uint32, error) {
 		return 0, fmt.Errorf("invalid lock time chunk")
 	}
 	return binary.LittleEndian.Uint32(c.Buf[:4]), nil
+}
+
+// FindPiggyBankUTXOFromFreezeTx 从已广播的冻结交易中扫描与 GetPiggyBankCode(addrStr, lockTime) 一致的 PiggyBank 输出并建成 UTXO。
+// freezeTxid 为 API 常见小写 hex（与 PIGGY_FREEZE_TXID 一致）。
+func FindPiggyBankUTXOFromFreezeTx(freezeTxid string, freezeTx *bt.Tx, addrStr string) (*bt.UTXO, error) {
+	tid := strings.ToLower(strings.TrimSpace(freezeTxid))
+	txidBytes, err := hex.DecodeString(tid)
+	if err != nil || len(txidBytes) != 32 {
+		return nil, fmt.Errorf("freeze txid: %w", err)
+	}
+	for i, out := range freezeTx.Outputs {
+		if out.LockingScript == nil {
+			continue
+		}
+		scriptHex := hex.EncodeToString(out.LockingScript.Bytes())
+		lt, err := FetchTBCLockTime(scriptHex)
+		if err != nil {
+			continue
+		}
+		want, err := GetPiggyBankCode(addrStr, lt)
+		if err != nil {
+			continue
+		}
+		if bytes.Equal(want.Bytes(), out.LockingScript.Bytes()) {
+			return &bt.UTXO{
+				TxID:          txidBytes,
+				Vout:          uint32(i),
+				Satoshis:      out.Satoshis,
+				LockingScript: out.LockingScript,
+			}, nil
+		}
+	}
+	return nil, fmt.Errorf("no PiggyBank output matching address %s in freeze tx", addrStr)
 }
 
 func applyUtxosToTxInputs(tx *bt.Tx, utxos []*bt.UTXO) {

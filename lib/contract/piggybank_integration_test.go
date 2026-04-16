@@ -117,39 +117,6 @@ func findPiggyBankUTXO(t *testing.T, freezeTxid string, freezeTx *bt.Tx, wantScr
 	return nil
 }
 
-// findPiggyBankUTXOInTx 在冻结交易中扫描输出：能解析为 Piggy 脚本且与 GetPiggyBankCode(addrStr, lt) 一致则命中（无需事先知道 PIGGY_LOCK_TIME）。
-func findPiggyBankUTXOInTx(t *testing.T, freezeTxid string, freezeTx *bt.Tx, addrStr string) *bt.UTXO {
-	t.Helper()
-	txidBytes, err := hex.DecodeString(strings.ToLower(strings.TrimSpace(freezeTxid)))
-	if err != nil || len(txidBytes) != 32 {
-		t.Fatalf("freeze txid: %v", err)
-	}
-	for i, out := range freezeTx.Outputs {
-		if out.LockingScript == nil {
-			continue
-		}
-		scriptHex := hex.EncodeToString(out.LockingScript.Bytes())
-		lt, err := FetchTBCLockTime(scriptHex)
-		if err != nil {
-			continue
-		}
-		want, err := GetPiggyBankCode(addrStr, lt)
-		if err != nil {
-			continue
-		}
-		if bytes.Equal(want.Bytes(), out.LockingScript.Bytes()) {
-			return &bt.UTXO{
-				TxID:          txidBytes,
-				Vout:          uint32(i),
-				Satoshis:      out.Satoshis,
-				LockingScript: out.LockingScript,
-			}
-		}
-	}
-	t.Fatal("冻结交易中未找到与 addr 匹配的 PiggyBank 输出（检查 PIGGY_FETCH_UTXO_ADDRESS / TBC_NETWORK 是否与冻结时一致）")
-	return nil
-}
-
 func assertTxOnChain(t *testing.T, network, txid string) {
 	t.Helper()
 	ok, err := api.IsTxOnChain(txid, network)
@@ -283,7 +250,10 @@ func TestPiggyBank_Integration_UnfreezeBroadcast_ExistingFreezeTX(t *testing.T) 
 	if err != nil {
 		t.Fatalf("FetchTXRaw(冻结): %v", err)
 	}
-	piggyUtxo := findPiggyBankUTXOInTx(t, freezeTxid, freezeTx, addrStr)
+	piggyUtxo, err := FindPiggyBankUTXOFromFreezeTx(freezeTxid, freezeTx, addrStr)
+	if err != nil {
+		t.Fatal(err)
+	}
 	t.Logf("待解冻 Piggy UTXO %s:%d sat=%d", freezeTxid, piggyUtxo.Vout, piggyUtxo.Satoshis)
 
 	rawUnfreeze, err := UnfreezeTBCWithSign(priv, []*bt.UTXO{piggyUtxo}, network)
