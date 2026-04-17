@@ -10,3 +10,5 @@ contract.test
 .DS_Store
 /piggy_freeze_run
 /ob_cancel_buy_compare
+/multisig_wallet_init
+multisig_wallets_setup.json

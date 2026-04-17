@@ -154,14 +154,28 @@ func GetCombineHash(address string) (string, error) {
 	return hex.EncodeToString(h) + "01", nil
 }
 
-// BuildHoldScript 与 MultiSig.buildHoldScript 一致
+// BuildHoldScript 与 MultiSig.buildHoldScript 一致。
+// 使用字节拼接而非 ASM 字符串：go-bt 的 NewFromASM 对「0x14 0x…」形式会报 invalid opcode data。
 func BuildHoldScript(pubKeyHex string) (*bscript.Script, error) {
 	pk, err := hex.DecodeString(pubKeyHex)
 	if err != nil {
 		return nil, err
 	}
-	h := crypto.Hash160(pk)
-	return bscript.NewFromASM(fmt.Sprintf("OP_DUP OP_HASH160 0x14 0x%s OP_EQUALVERIFY OP_CHECKSIG OP_RETURN 0x08 0x6d756c7469736967", hex.EncodeToString(h)))
+	if len(pk) != 33 {
+		return nil, fmt.Errorf("BuildHoldScript: expect 33-byte compressed pubkey")
+	}
+	base, err := bscript.NewP2PKHFromPubKeyBytes(pk)
+	if err != nil {
+		return nil, err
+	}
+	s := bscript.NewFromBytes(base.Bytes())
+	if err := s.AppendOpcodes(bscript.OpRETURN); err != nil {
+		return nil, err
+	}
+	if err := s.AppendPushData([]byte("multisig")); err != nil {
+		return nil, err
+	}
+	return s, nil
 }
 
 // BuildTapeScript 与 MultiSig.buildTapeScript 一致

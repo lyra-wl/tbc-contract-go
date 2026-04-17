@@ -1314,6 +1314,87 @@ func hexDecode(s string) []byte {
 	return b
 }
 
+// P2PKHToP2PKHSendTBC 普通 P2PKH 向普通 P2PKH 转 TBC（单笔输出 + 找零），与 multiSIg 等一致使用 version=10。
+func P2PKHToP2PKHSendTBC(addressFrom, addressTo string, tbcAmount float64, utxos []*bt.UTXO, privKey *bec.PrivateKey) (string, error) {
+	if err := validateP2PKHAddress(addressFrom); err != nil {
+		return "", err
+	}
+	if err := validateP2PKHAddress(addressTo); err != nil {
+		return "", err
+	}
+	amt := util.ParseDecimalToBigInt(fmt.Sprintf("%g", tbcAmount), 6)
+	if amt.Sign() <= 0 {
+		return "", fmt.Errorf("invalid amount")
+	}
+	addrTo, err := bscript.NewAddressFromString(addressTo)
+	if err != nil {
+		return "", err
+	}
+	ls, err := bscript.NewP2PKHFromPubKeyHash(hexDecode(addrTo.PublicKeyHash))
+	if err != nil {
+		return "", err
+	}
+	tx := newFTTx()
+	if err := tx.FromUTXOs(utxos...); err != nil {
+		return "", err
+	}
+	tx.AddOutput(&bt.Output{LockingScript: ls, Satoshis: amt.Uint64()})
+	if err := tx.ChangeToAddress(addressFrom, newFeeQuote80()); err != nil {
+		return "", err
+	}
+	ctx := context.Background()
+	if err := tx.FillAllInputs(ctx, &unlocker.Getter{PrivateKey: privKey}); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(tx.Bytes()), nil
+}
+
+// P2PKHOutputTBC 描述一笔 P2PKH 转账输出。
+type P2PKHOutputTBC struct {
+	Address string
+	TBC     float64
+}
+
+// P2PKHToManyP2PKHSendTBC 一笔交易内向多个 P2PKH 各转指定 TBC，最后向 addressFrom 找零（费率同 newFeeQuote80）。
+func P2PKHToManyP2PKHSendTBC(addressFrom string, outputs []P2PKHOutputTBC, utxos []*bt.UTXO, privKey *bec.PrivateKey) (string, error) {
+	if err := validateP2PKHAddress(addressFrom); err != nil {
+		return "", err
+	}
+	if len(outputs) == 0 {
+		return "", fmt.Errorf("no outputs")
+	}
+	tx := newFTTx()
+	if err := tx.FromUTXOs(utxos...); err != nil {
+		return "", err
+	}
+	for _, o := range outputs {
+		if err := validateP2PKHAddress(o.Address); err != nil {
+			return "", err
+		}
+		amt := util.ParseDecimalToBigInt(fmt.Sprintf("%g", o.TBC), 6)
+		if amt.Sign() <= 0 {
+			return "", fmt.Errorf("invalid amount for %s", o.Address)
+		}
+		addrTo, err := bscript.NewAddressFromString(o.Address)
+		if err != nil {
+			return "", err
+		}
+		ls, err := bscript.NewP2PKHFromPubKeyHash(hexDecode(addrTo.PublicKeyHash))
+		if err != nil {
+			return "", err
+		}
+		tx.AddOutput(&bt.Output{LockingScript: ls, Satoshis: amt.Uint64()})
+	}
+	if err := tx.ChangeToAddress(addressFrom, newFeeQuote80()); err != nil {
+		return "", err
+	}
+	ctx := context.Background()
+	if err := tx.FillAllInputs(ctx, &unlocker.Getter{PrivateKey: privKey}); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(tx.Bytes()), nil
+}
+
 // newFTTx 创建 HTLC/MultiSig/FT 等需在 TBC 节点广播的交易（version=10；默认 version=1 可能被拒）。
 func newFTTx() *bt.Tx {
 	tx := bt.NewTx()
