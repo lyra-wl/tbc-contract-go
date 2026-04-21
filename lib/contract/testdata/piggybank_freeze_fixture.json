@@ -1,0 +1,23 @@
+{
+  "test_id": "piggy_freeze_001",
+  "disabled": false,
+  "description": "PiggyBank 冻结：tbc_number 为人类可读 TBC（6 位小数）；lock_time 为脚本内 uint32 LE；utxos 为可花费 P2PKH 输入。",
+  "operation": "piggy_freeze",
+  "inputs": {
+    "private_key_wif": "KxF1NdXjRxQ2ENESe656kMZ8fo7USBrikfLwUg4PpqXL4qoJF9QM",
+    "network": "testnet",
+    "tbc_number": 0.001,
+    "lock_time": 100000,
+    "utxos": [
+      {
+        "txid": "ed56d507d9bc6aa0d55adcb12394a7c2e97b3c5f78379da8c343e64fdaca8573",
+        "vout": 2,
+        "satoshis": 9991680,
+        "script": "76a9149e307092aa3ad78247f49df24bfa499bc835708188ac"
+      }
+    ]
+  },
+  "expected": {
+    "description": "tx_raw 应对齐 piggyBank._freezeTBC / FreezeTBCWithSign；运行 scripts/piggy_freeze_fixture_compare.mjs 后见 piggybank_test.json"
+  }
+}

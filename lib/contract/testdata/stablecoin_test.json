@@ -1,0 +1,15 @@
+{
+  "_readme": [
+    "0) 不广播、不拉链上：cd tbc-contract-go && go test ./lib/contract -run TestStableCoin_MintNFTTxdataOffline -count=1 -v（写出 testdata/stablecoin_mint_offline.json 并可选跑 node 对照）；仓库根 npm run stablecoin-mint-compare-offline",
+    "1) 生成 go 段：cd tbc-contract-go && STABLECOIN_DIAG_JSON=1 RUN_REAL_COIN_TEST=1 TBC_NETWORK=testnet TBC_PRIVATE_KEY=... go test -tags=integration -v ./lib/contract -run TestStableCoin_MintDiagJSON -count=1",
+    "2) 合并 TS 对照与 analysis：在仓库根目录 npm run stablecoin-mint-compare（或 node scripts/stablecoin_mint_compare.mjs）",
+    "可选：STABLECOIN_DIAG_OUT=/abs/path.json 指定 Go 写出路径；任意 JSON：node scripts/stablecoin_mint_compare.mjs <path>；SKIP_STABLECOIN_OFFLINE_NODE=1 跳过离线测试内的 node 子进程。"
+  ],
+  "rawHex": {},
+  "go": null,
+  "tsReference": null,
+  "comparison": null,
+  "analysis": {
+    "error": "缺少 rawHex.mintTx / coinNftTx / fundingTx。请先运行 Go TestStableCoin_MintDiagJSON 生成 JSON。"
+  }
+}

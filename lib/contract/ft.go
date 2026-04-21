@@ -951,7 +951,8 @@ func mintSourceTargetFeeSat(satPerKB, estBytes int) int {
 	return int(math.Ceil(float64(estBytes) * float64(satPerKB) / 1000.0))
 }
 
-func (f *FT) getFTunlock(privKey *bec.PrivateKey, tx *bt.Tx, preTX *bt.Tx, prepreTxData string, inputIdx, preTxVout int) (*bscript.Script, error) {
+// getFTunlock 与 tbc-contract/lib/contract/ft.js getFTunlock 一致；isCoin 为真时在 pubkey 与 pretxdata 之间追加 0x00（稳定币 transfer）。
+func (f *FT) getFTunlock(privKey *bec.PrivateKey, tx *bt.Tx, preTX *bt.Tx, prepreTxData string, inputIdx, preTxVout int, isCoin ...bool) (*bscript.Script, error) {
 	pretxdata, err := bt.GetPreTxdata(preTX, preTxVout)
 	if err != nil {
 		return nil, err
@@ -974,7 +975,11 @@ func (f *FT) getFTunlock(privKey *bec.PrivateKey, tx *bt.Tx, preTX *bt.Tx, prepr
 	pubKey := privKey.PubKey().SerialiseCompressed()
 	pubKeyHex := fmt.Sprintf("%02x%s", len(pubKey), hex.EncodeToString(pubKey))
 
-	unlockHex := currenttxdata + prepreTxData + sigHex + pubKeyHex + pretxdata
+	coinFlag := ""
+	if len(isCoin) > 0 && isCoin[0] {
+		coinFlag = "00"
+	}
+	unlockHex := currenttxdata + prepreTxData + sigHex + pubKeyHex + coinFlag + pretxdata
 	unlockScript, err := bscript.NewFromHexString(unlockHex)
 	if err != nil {
 		return nil, err

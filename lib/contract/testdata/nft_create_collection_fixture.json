@@ -1,0 +1,28 @@
+{
+  "test_id": "nft_collection_001",
+  "disabled": false,
+  "description": "NFT 合集创世：NFT.createCollection / CreateCollection。需足够 TBC 输入支付 supply×100 sat 铸币槽 + 手续费 + 找零。",
+  "operation": "nft_create_collection",
+  "inputs": {
+    "private_key_wif": "KxF1NdXjRxQ2ENESe656kMZ8fo7USBrikfLwUg4PpqXL4qoJF9QM",
+    "network": "testnet",
+    "address_mint_slots": "1FRRnxkUwwGKCdbpaeeuz8B6C3F1vJGBFF",
+    "collection_data": {
+      "name": "MyCollection",
+      "description": "合集描述（会进 OP_RETURN tape JSON）",
+      "supply": 3,
+      "file": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    },
+    "utxos": [
+      {
+        "txid": "7690eb706b0edf31fe9892f501a2833e8cc57275ad53975533e1f3b566b4adac",
+        "vout": 1,
+        "satoshis": 896359698,
+        "script": "76a9149e307092aa3ad78247f49df24bfa499bc835708188ac"
+      }
+    ]
+  },
+  "expected": {
+    "description": "Go 侧 CollectionData JSON 键与 nft.ts 一致：collectionName/description/supply/file；找零与 JS 一致指向 address_mint_slots。输出含 1 笔 tape(0sat) + supply 笔 100sat 铸币槽 + 找零。本对照脚本不广播。"
+  }
+}

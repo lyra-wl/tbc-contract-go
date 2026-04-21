@@ -11,6 +11,7 @@ import (
 
 	"github.com/libsv/go-bk/wif"
 	bt "github.com/sCrypt-Inc/go-bt/v2"
+	"github.com/sCrypt-Inc/go-bt/v2/bscript"
 	"github.com/sCrypt-Inc/tbc-contract-go/lib/api"
 	"github.com/sCrypt-Inc/tbc-contract-go/lib/contract"
 )
@@ -44,6 +45,7 @@ type utxoForJS struct {
 
 type outJSON struct {
 	Meta struct {
+		Mode         string  `json:"mode,omitempty"`
 		Network      string  `json:"network"`
 		LockTime     uint32  `json:"lockTime"`
 		TbcNumber    float64 `json:"tbcNumber"`
@@ -54,6 +56,39 @@ type outJSON struct {
 	} `json:"meta"`
 	UtxoForJS utxoForJS `json:"utxoForJs"`
 	Go        goSide    `json:"go"`
+}
+
+// fixedUTXOFromEnv 当 PIGGY_USE_FIXED_UTXO=1 时，从环境变量构造 UTXO（不调用 FetchUTXO），用于与 JS 固定输入对照。
+func fixedUTXOFromEnv() (*bt.UTXO, string, error) {
+	txidHex := strings.ToLower(strings.TrimSpace(os.Getenv("PIGGY_FIXED_UTXO_TXID")))
+	voutStr := strings.TrimSpace(os.Getenv("PIGGY_FIXED_UTXO_VOUT"))
+	satStr := strings.TrimSpace(os.Getenv("PIGGY_FIXED_UTXO_SATOSHIS"))
+	scriptHex := strings.TrimSpace(os.Getenv("PIGGY_FIXED_UTXO_SCRIPT"))
+	if txidHex == "" || voutStr == "" || satStr == "" || scriptHex == "" {
+		return nil, "", fmt.Errorf("fixed UTXO: need PIGGY_FIXED_UTXO_TXID, PIGGY_FIXED_UTXO_VOUT, PIGGY_FIXED_UTXO_SATOSHIS, PIGGY_FIXED_UTXO_SCRIPT")
+	}
+	txidBytes, err := hex.DecodeString(txidHex)
+	if err != nil || len(txidBytes) != 32 {
+		return nil, "", fmt.Errorf("PIGGY_FIXED_UTXO_TXID: invalid hex")
+	}
+	vout64, err := strconv.ParseUint(voutStr, 10, 32)
+	if err != nil {
+		return nil, "", fmt.Errorf("PIGGY_FIXED_UTXO_VOUT: %w", err)
+	}
+	sat, err := strconv.ParseUint(satStr, 10, 64)
+	if err != nil {
+		return nil, "", fmt.Errorf("PIGGY_FIXED_UTXO_SATOSHIS: %w", err)
+	}
+	ls, err := bscript.NewFromHexString(scriptHex)
+	if err != nil {
+		return nil, "", fmt.Errorf("PIGGY_FIXED_UTXO_SCRIPT: %w", err)
+	}
+	return &bt.UTXO{
+		TxID:          txidBytes,
+		Vout:          uint32(vout64),
+		Satoshis:      sat,
+		LockingScript: ls,
+	}, txidHex, nil
 }
 
 func main() {
@@ -85,9 +120,13 @@ func run() error {
 	if err != nil || extraTbc < 0 {
 		return fmt.Errorf("PIGGY_FETCH_UTXO_EXTRA_TBC: %w", err)
 	}
+	useFixed := strings.TrimSpace(os.Getenv("PIGGY_USE_FIXED_UTXO")) == "1"
 	lockStr := strings.TrimSpace(os.Getenv("PIGGY_TEST_LOCK_TIME"))
 	var lockTime uint32
 	if lockStr == "" {
+		if useFixed {
+			return fmt.Errorf("PIGGY_USE_FIXED_UTXO=1 时必须设置 PIGGY_TEST_LOCK_TIME（脚本内 uint32 锁定高度）")
+		}
 		headers, err := api.FetchBlockHeaders(network)
 		if err != nil || len(headers) == 0 {
 			return fmt.Errorf("PIGGY_TEST_LOCK_TIME 未设置且 FetchBlockHeaders 失败: %w", err)
@@ -112,14 +151,30 @@ func run() error {
 		return fmt.Errorf("wif: %w", err)
 	}
 	priv := dec.PrivKey
-	fetchAddr := strings.TrimSpace(os.Getenv("PIGGY_FETCH_UTXO_ADDRESS"))
-	if fetchAddr == "" {
-		fetchAddr = piggyDefaultFetchUTXOAddress
-	}
-	fetchAmount := tbcNum + extraTbc
-	utxo, apiTxid, err := api.FetchUTXOWithAPITxID(fetchAddr, fetchAmount, network)
-	if err != nil {
-		return fmt.Errorf("FetchUTXO: %w", err)
+	var utxo *bt.UTXO
+	var apiTxid string
+	var fetchAddr string
+	var fetchAmount float64
+	if useFixed {
+		u, tid, err := fixedUTXOFromEnv()
+		if err != nil {
+			return err
+		}
+		utxo, apiTxid = u, tid
+		fetchAddr = ""
+		fetchAmount = 0
+		extraTbc = 0
+	} else {
+		fetchAddr = strings.TrimSpace(os.Getenv("PIGGY_FETCH_UTXO_ADDRESS"))
+		if fetchAddr == "" {
+			fetchAddr = piggyDefaultFetchUTXOAddress
+		}
+		fetchAmount = tbcNum + extraTbc
+		var err error
+		utxo, apiTxid, err = api.FetchUTXOWithAPITxID(fetchAddr, fetchAmount, network)
+		if err != nil {
+			return fmt.Errorf("FetchUTXO: %w", err)
+		}
 	}
 	if v := strings.TrimSpace(os.Getenv("FT_FEE_SAT_PER_KB")); v == "" {
 		_ = os.Setenv("FT_FEE_SAT_PER_KB", "500")
@@ -155,6 +210,9 @@ func run() error {
 	}
 	scriptHex := utxo.LockingScriptHexString()
 	o := outJSON{}
+	if useFixed {
+		o.Meta.Mode = "fixed_utxo"
+	}
 	o.Meta.Network = network
 	o.Meta.LockTime = lockTime
 	o.Meta.TbcNumber = tbcNum

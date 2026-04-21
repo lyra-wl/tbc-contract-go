@@ -243,6 +243,7 @@ func getFTBalanceCombinescriptDual(contractTxID, addressOrHash, network string) 
 }
 
 // GetFTBalance 查询 FT 余额。对**有效地址**优先走按地址接口；若余额为 0 或请求失败，再使用 combinescript 双路径与索引真实数据对齐。
+// 稳定币索引器以「首铸 mint 的 input0 父交易」(coin NFT txid) 为 stablecoinid；与 ft/.../contract/{mint} 不同，故在 FT 路径无正余额时再试 stablecoin/tokenbalance。
 func GetFTBalance(contractTxID, addressOrHash, network string) (string, error) {
 	ok, _ := bscript.ValidateAddress(addressOrHash)
 	if ok {
@@ -250,9 +251,29 @@ func GetFTBalance(contractTxID, addressOrHash, network string) (string, error) {
 		if err == nil && ftBalanceStringPositive(balAddr) {
 			return balAddr, nil
 		}
+		if sid, err2 := StableCoinIndexerIDFromMintContractTx(contractTxID, network); err2 == nil && sid != "" {
+			if b, err3 := getStableCoinTokenBalanceByAddress(sid, addressOrHash, network); err3 == nil && ftBalanceStringPositive(b) {
+				return b, nil
+			}
+			if b, err4 := getStableCoinTokenBalanceCombinescriptDual(sid, addressOrHash, network); err4 == nil && ftBalanceStringPositive(b) {
+				return b, nil
+			}
+		}
 		return getFTBalanceCombinescriptDual(contractTxID, addressOrHash, network)
 	}
-	return getFTBalanceCombinescriptDual(contractTxID, addressOrHash, network)
+	bal, err := getFTBalanceCombinescriptDual(contractTxID, addressOrHash, network)
+	if err != nil {
+		return "", err
+	}
+	if ftBalanceStringPositive(bal) {
+		return bal, nil
+	}
+	if sid, err2 := StableCoinIndexerIDFromMintContractTx(contractTxID, network); err2 == nil && sid != "" {
+		if b, err3 := getStableCoinTokenBalanceCombinescriptDual(sid, addressOrHash, network); err3 == nil && ftBalanceStringPositive(b) {
+			return b, nil
+		}
+	}
+	return bal, nil
 }
 
 func fetchFtUTXOListResponse(contractTxID, hash, network string) (ftUtxoListResponse, error) {
@@ -292,6 +313,24 @@ func FetchFtUTXOList(contractTxID, addressOrHash, codeScript, network string) ([
 			r, err = fetchFtUTXOListResponse(contractTxID, hashAlt, network)
 			if err != nil {
 				return nil, err
+			}
+		}
+	}
+	// 稳定币：索引 UTXO 在 stablecoin/utxo/.../stablecoinid/{coin NFT txid}；contractTxID 常为首铸 mint，与 JS fetchCoinUTXOList 一致。
+	if len(r.Data.UTXOs) == 0 {
+		sid, errSC := StableCoinIndexerIDFromMintContractTx(contractTxID, network)
+		if errSC == nil && sid != "" {
+			rs, errU := fetchStableCoinUtxoListResponse(sid, hashJS, network)
+			if errU == nil && len(rs.Data.UTXOs) > 0 {
+				r = rs
+			} else {
+				hashAlt, err2 := buildAddressOrHash(addressOrHash)
+				if err2 == nil && hashAlt != hashJS {
+					rs2, errU2 := fetchStableCoinUtxoListResponse(sid, hashAlt, network)
+					if errU2 == nil && len(rs2.Data.UTXOs) > 0 {
+						r = rs2
+					}
+				}
 			}
 		}
 	}

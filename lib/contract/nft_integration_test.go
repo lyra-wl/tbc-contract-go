@@ -140,10 +140,10 @@ func TestNFT_Integration_CollectionMintTransfer_Broadcast(t *testing.T) {
 	}
 
 	cd := &CollectionData{
-		Name:        "go-nft-integration",
-		Description: "tbc-contract-go integration",
-		Supply:      supply,
-		File:        nftIntegrationTinyPNGDataURI,
+		CollectionName: "go-nft-integration",
+		Description:    "tbc-contract-go integration",
+		Supply:         supply,
+		File:           nftIntegrationTinyPNGDataURI,
 	}
 	rawCol, err := CreateCollection(addrStr, priv, cd, []*bt.UTXO{utxoCol})
 	if err != nil {

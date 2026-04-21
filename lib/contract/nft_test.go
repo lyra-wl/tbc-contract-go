@@ -42,7 +42,7 @@ func TestBuildNFTHoldMintTape(t *testing.T) {
 	if m.String() == h.String() {
 		t.Fatal("mint and hold scripts must differ")
 	}
-	cd := &CollectionData{Name: "c", Description: "d", Supply: 0}
+	cd := &CollectionData{CollectionName: "c", Description: "d", Supply: 0}
 	tape, err := BuildNFTTapeScript(cd)
 	if err != nil {
 		t.Fatal(err)

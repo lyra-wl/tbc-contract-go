@@ -123,6 +123,18 @@ func envOrDefault(key, def string) string {
 	return v
 }
 
+func envFloatOrDefault(key string, def float64) float64 {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return def
+	}
+	f, err := strconv.ParseFloat(v, 64)
+	if err != nil || f <= 0 {
+		return def
+	}
+	return f
+}
+
 func parsePositiveInt64(t *testing.T, key string, def int64) int64 {
 	t.Helper()
 	raw := envOrDefault(key, strconv.FormatInt(def, 10))

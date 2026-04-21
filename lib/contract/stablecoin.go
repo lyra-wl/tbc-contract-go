@@ -15,7 +15,9 @@ import (
 	"github.com/libsv/go-bk/bec"
 	bt "github.com/sCrypt-Inc/go-bt/v2"
 	"github.com/sCrypt-Inc/go-bt/v2/bscript"
+	"github.com/sCrypt-Inc/go-bt/v2/sighash"
 	"github.com/sCrypt-Inc/go-bt/v2/unlocker"
+	"github.com/sCrypt-Inc/tbc-contract-go/lib/util"
 )
 
 //go:embed stablecoin_mint_template.txt
@@ -71,11 +73,12 @@ func (sc *StableCoin) CreateCoin(
 
 	nameHex := hex.EncodeToString([]byte(name))
 	symbolHex := hex.EncodeToString([]byte(symbol))
-	decimalHex := fmt.Sprintf("%02x", decimal)
+	// 与 tbc-lib-js decodeASM+writePushData 不同：链上 SCRIPT_VERIFY_MINIMALDATA 拒绝 decimal 的 0x01 0x06 形式，须用 OP_1..OP_16（decimal 常见为 6 → OP_6）。
+	decTok := stableCoinTapeDecimalASM(decimal)
 	lockTimeHex := "00000000"
 
 	tapeASM := fmt.Sprintf("OP_FALSE OP_RETURN %s %s %s %s %s 4654617065",
-		amountHex, decimalHex, nameHex, symbolHex, lockTimeHex)
+		amountHex, decTok, nameHex, symbolHex, lockTimeHex)
 	tapeScript, err := bscript.NewFromASM(tapeASM)
 	if err != nil {
 		return nil, fmt.Errorf("build tape script: %w", err)
@@ -116,7 +119,7 @@ func (sc *StableCoin) CreateCoin(
 	sc.TapeScript = hex.EncodeToString(tapeScript.Bytes())
 
 	// Build the mint transaction
-	tx := bt.NewTx()
+	tx := newFTTx()
 	if err := addInputFromPrevTxOutput(tx, coinNftTX, 0); err != nil {
 		return nil, err
 	}
@@ -140,6 +143,12 @@ func (sc *StableCoin) CreateCoin(
 		tx.AddOutput(&bt.Output{LockingScript: msgScript, Satoshis: 0})
 	}
 
+	// 与 stableCoin.ts createCoin：tx.feePerKb(80).change(admin) 后再 setInputScript；否则 getCurrentTxdata 不含找零，与链上合约 OP_SPLIT 不一致。
+	fq := newFeeQuoteWithSatPerKB(nftFeeSatPerKBFromEnv())
+	if err := tx.ChangeToAddress(adminAddress.AddressString, fq); err != nil {
+		return nil, fmt.Errorf("mint ChangeToAddress: %w", err)
+	}
+
 	// Sign: input 0 = NFT unlock, input 1 = P2PKH sig, input 2 = P2PKH (change from coinNftTX)
 	nftUnlocker := &nftIn0Unlocker{
 		priv:    privKeyAdmin,
@@ -151,12 +160,13 @@ func (sc *StableCoin) CreateCoin(
 		return nil, fmt.Errorf("nft unlock input 0: %w", err)
 	}
 
-	sigP2PKH := &unlocker.Simple{PrivateKey: privKeyAdmin}
-	tx.Inputs[1].UnlockingScript, err = sigP2PKH.UnlockingScript(context.Background(), tx, bt.UnlockerParams{InputIdx: 1})
+	holdUnlock := &p2pkhOrMintPrefixUnlocker{priv: privKeyAdmin}
+	tx.Inputs[1].UnlockingScript, err = holdUnlock.UnlockingScript(context.Background(), tx, bt.UnlockerParams{InputIdx: 1})
 	if err != nil {
-		return nil, fmt.Errorf("sign input 1: %w", err)
+		return nil, fmt.Errorf("sign input 1 (coin NFT hold): %w", err)
 	}
 
+	sigP2PKH := &unlocker.Simple{PrivateKey: privKeyAdmin}
 	tx.Inputs[2].UnlockingScript, err = sigP2PKH.UnlockingScript(context.Background(), tx, bt.UnlockerParams{InputIdx: 2})
 	if err != nil {
 		return nil, fmt.Errorf("sign input 2: %w", err)
@@ -196,11 +206,11 @@ func (sc *StableCoin) MintCoin(
 
 	nameHex := hex.EncodeToString([]byte(sc.Name))
 	symbolHex := hex.EncodeToString([]byte(sc.Symbol))
-	decimalHex := fmt.Sprintf("%02x", decimal)
+	decTok := stableCoinTapeDecimalASM(decimal)
 	lockTimeHex := "00000000"
 
 	tapeASM := fmt.Sprintf("OP_FALSE OP_RETURN %s %s %s %s %s 4654617065",
-		amountHex, decimalHex, nameHex, symbolHex, lockTimeHex)
+		amountHex, decTok, nameHex, symbolHex, lockTimeHex)
 	tapeScript, err := bscript.NewFromASM(tapeASM)
 	if err != nil {
 		return "", err
@@ -225,7 +235,7 @@ func (sc *StableCoin) MintCoin(
 	sc.CodeScript = hex.EncodeToString(codeScript.Bytes())
 	sc.TapeScript = hex.EncodeToString(tapeScript.Bytes())
 
-	tx := bt.NewTx()
+	tx := newFTTx()
 	if err := addInputFromPrevTxOutput(tx, coinNftTX, 0); err != nil {
 		return "", err
 	}
@@ -250,6 +260,11 @@ func (sc *StableCoin) MintCoin(
 		tx.AddOutput(&bt.Output{LockingScript: msgScript, Satoshis: 0})
 	}
 
+	fq := newFeeQuoteWithSatPerKB(nftFeeSatPerKBFromEnv())
+	if err := tx.ChangeToAddress(adminAddress.AddressString, fq); err != nil {
+		return "", fmt.Errorf("mint ChangeToAddress: %w", err)
+	}
+
 	nftUnlocker := &nftIn0Unlocker{
 		priv:    privKeyAdmin,
 		preTx:   nftPreTX,
@@ -260,12 +275,13 @@ func (sc *StableCoin) MintCoin(
 		return "", fmt.Errorf("nft unlock input 0: %w", err)
 	}
 
-	sigP2PKH := &unlocker.Simple{PrivateKey: privKeyAdmin}
-	tx.Inputs[1].UnlockingScript, err = sigP2PKH.UnlockingScript(context.Background(), tx, bt.UnlockerParams{InputIdx: 1})
+	holdUnlock := &p2pkhOrMintPrefixUnlocker{priv: privKeyAdmin}
+	tx.Inputs[1].UnlockingScript, err = holdUnlock.UnlockingScript(context.Background(), tx, bt.UnlockerParams{InputIdx: 1})
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("sign input 1 (coin NFT hold): %w", err)
 	}
 
+	sigP2PKH := &unlocker.Simple{PrivateKey: privKeyAdmin}
 	tx.Inputs[2].UnlockingScript, err = sigP2PKH.UnlockingScript(context.Background(), tx, bt.UnlockerParams{InputIdx: 2})
 	if err != nil {
 		return "", err
@@ -320,18 +336,28 @@ func (sc *StableCoin) TransferCoin(
 	if decimal > 18 {
 		return "", fmt.Errorf("the maximum value for decimal cannot exceed 18")
 	}
+	if err := checkFTAmountHumanJSMax(decimal, strings.TrimSpace(ftAmount)); err != nil {
+		return "", err
+	}
 
 	amountHex, changeHex := BuildTapeAmount(amountBN, tapeAmountSet)
 
-	tx := bt.NewTx()
-	for _, fu := range ftutxos {
-		if err := tx.From(fu.TxID, fu.Vout, fu.Script, fu.Satoshis); err != nil {
-			return "", err
-		}
+	ftUTXOs, err := util.FtUTXOsToUTXOs(ftutxos)
+	if err != nil {
+		return "", fmt.Errorf("ft utxos: %w", err)
 	}
-	if err := tx.From(hex.EncodeToString(feeUTXO.TxID), feeUTXO.Vout, feeUTXO.LockingScript.String(), feeUTXO.Satoshis); err != nil {
+	tx := newFTTx()
+	if err := tx.FromUTXOs(ftUTXOs...); err != nil {
 		return "", err
 	}
+	if err := tx.FromUTXOs(feeUTXO); err != nil {
+		return "", err
+	}
+
+	for i := range ftutxos {
+		tx.Inputs[i].SequenceNumber = 4294967294
+	}
+	tx.LockTime = lockTimeMax
 
 	codeScript := BuildFTtransferCode(sc.CodeScript, addressTo)
 	tx.AddOutput(&bt.Output{LockingScript: codeScript, Satoshis: 500})
@@ -340,9 +366,7 @@ func (sc *StableCoin) TransferCoin(
 	tx.AddOutput(&bt.Output{LockingScript: tapeScript, Satoshis: 0})
 
 	if tbcAmount > 0 {
-		toAddr, _ := bscript.NewAddressFromString(addressTo)
-		p2pkh, _ := bscript.NewP2PKHFromAddress(toAddr.AddressString)
-		tx.AddOutput(&bt.Output{LockingScript: p2pkh, Satoshis: tbcAmount})
+		tx.To(addressTo, tbcAmount)
 	}
 
 	if amountBN.Cmp(tapeAmountSum) < 0 {
@@ -352,24 +376,55 @@ func (sc *StableCoin) TransferCoin(
 		tx.AddOutput(&bt.Output{LockingScript: changeTape, Satoshis: 0})
 	}
 
+	changeScript, err := bscript.NewP2PKHFromAddress(addressFrom)
+	if err != nil {
+		return "", fmt.Errorf("NewP2PKHFromAddress for change: %w", err)
+	}
+	inputTotal := tx.TotalInputSatoshis()
+	outputTotal := tx.TotalOutputSatoshis()
+	if inputTotal <= outputTotal {
+		return "", fmt.Errorf("insufficient input satoshis: in=%d out=%d", inputTotal, outputTotal)
+	}
+	tx.AddOutput(&bt.Output{LockingScript: changeScript, Satoshis: inputTotal - outputTotal})
+
+	satPerKB := feeSatPerKBFromEnv()
+	nFt := len(ftutxos)
+	ftUnlockLens := make([]int, nFt)
+	for i := 0; i < nFt; i++ {
+		us, err := sc.getFTunlockCoin(privKey, tx, preTXs[i], prepreTxData[i], i, int(ftutxos[i].Vout), isCoin)
+		if err != nil {
+			return "", fmt.Errorf("probe FT unlock length input %d: %w", i, err)
+		}
+		ftUnlockLens[i] = us.Len()
+	}
+	if err := adjustFTTransferChangeFee(tx, satPerKB, nFt, ftUnlockLens); err != nil {
+		return "", fmt.Errorf("adjust transfer fee: %w", err)
+	}
+
+	ctx := context.Background()
+	for ii := nFt; ii < len(tx.Inputs); ii++ {
+		su := &unlocker.Simple{PrivateKey: privKey}
+		us, err := su.UnlockingScript(ctx, tx, bt.UnlockerParams{
+			InputIdx:     uint32(ii),
+			SigHashFlags: sighash.AllForkID,
+		})
+		if err != nil {
+			return "", fmt.Errorf("sign fee input %d: %w", ii, err)
+		}
+		if err := tx.InsertInputUnlockingScript(uint32(ii), us); err != nil {
+			return "", err
+		}
+	}
 	for i := range ftutxos {
-		tx.Inputs[i].SequenceNumber = 4294967294
-		unlock, err := sc.getFTunlockCoin(privKey, tx, preTXs[i], prepreTxData[i], i, int(ftutxos[i].Vout), isCoin)
+		us, err := sc.getFTunlockCoin(privKey, tx, preTXs[i], prepreTxData[i], i, int(ftutxos[i].Vout), isCoin)
 		if err != nil {
 			return "", fmt.Errorf("ft unlock input %d: %w", i, err)
 		}
-		tx.Inputs[i].UnlockingScript = unlock
+		if err := tx.InsertInputUnlockingScript(uint32(i), us); err != nil {
+			return "", err
+		}
 	}
 
-	// Sign fee input
-	sigP2PKH := &unlocker.Simple{PrivateKey: privKey}
-	feeIdx := len(ftutxos)
-	tx.Inputs[feeIdx].UnlockingScript, err = sigP2PKH.UnlockingScript(context.Background(), tx, bt.UnlockerParams{InputIdx: uint32(feeIdx)})
-	if err != nil {
-		return "", err
-	}
-
-	tx.LockTime = lockTimeMax
 	return hex.EncodeToString(tx.Bytes()), nil
 }
 
@@ -408,7 +463,7 @@ func (sc *StableCoin) FreezeCoinUTXO(
 		return "", fmt.Errorf("change amount is not zero")
 	}
 
-	tx := bt.NewTx()
+	tx := newFTTx()
 	for _, fu := range ftutxos {
 		if err := tx.From(fu.TxID, fu.Vout, fu.Script, fu.Satoshis); err != nil {
 			return "", err
@@ -475,7 +530,7 @@ func (sc *StableCoin) UnfreezeCoinUTXO(
 		return "", fmt.Errorf("change amount is not zero")
 	}
 
-	tx := bt.NewTx()
+	tx := newFTTx()
 	for _, fu := range ftutxos {
 		if err := tx.From(fu.TxID, fu.Vout, fu.Script, fu.Satoshis); err != nil {
 			return "", err
@@ -560,7 +615,7 @@ func (sc *StableCoin) MergeCoin(
 
 		amtHex, _ := BuildTapeAmount(tapeAmountSum, tapeAmountSet)
 
-		tx := bt.NewTx()
+		tx := newFTTx()
 		for _, fu := range batch {
 			if err := tx.From(fu.TxID, fu.Vout, fu.Script, fu.Satoshis); err != nil {
 				return nil, err
@@ -627,11 +682,9 @@ func (sc *StableCoin) MergeCoin(
 	return txRaws, nil
 }
 
-// getFTunlockCoin wraps getFTunlock for stablecoin with isCoin flag.
-// isCoin=1 indicates stablecoin mode for the FT unlock script.
+// getFTunlockCoin 对齐 JS FT.getFTunlock(..., isCoin)：isCoin 非 0 时在解锁脚本中追加 0x00。
 func (sc *StableCoin) getFTunlockCoin(privKey *bec.PrivateKey, tx *bt.Tx, preTX *bt.Tx, prepreTxData string, inputIdx, preTxVout, isCoin int) (*bscript.Script, error) {
-	_ = isCoin
-	return sc.FT.getFTunlock(privKey, tx, preTX, prepreTxData, inputIdx, preTxVout)
+	return sc.FT.getFTunlock(privKey, tx, preTX, prepreTxData, inputIdx, preTxVout, isCoin != 0)
 }
 
 // --- Static helper functions ---
@@ -717,7 +770,7 @@ func BuildCoinNftTX(privKey *bec.PrivateKey, utxo *bt.UTXO, data *CoinNftData) (
 		return nil, err
 	}
 
-	tx := bt.NewTx()
+	tx := newFTTx()
 	if err := tx.From(utxoTxIDStr, utxo.Vout, utxo.LockingScript.String(), utxo.Satoshis); err != nil {
 		return nil, err
 	}
@@ -728,11 +781,16 @@ func BuildCoinNftTX(privKey *bec.PrivateKey, utxo *bt.UTXO, data *CoinNftData) (
 	changeScript, _ := bscript.NewP2PKHFromAddress(address)
 	tx.AddOutput(&bt.Output{LockingScript: changeScript, Satoshis: 0})
 
-	// Estimate fee and set change
+	// Estimate fee and set change（与 CreateCoin 首铸一致：用 NFT/FT 环境费率，避免 testnet 上硬编码 80 过低）
+	satPerKB := nftFeeSatPerKBFromEnv()
+	if satPerKB < 1 {
+		satPerKB = 80
+	}
 	estimatedSize := tx.Size() + 107
-	fee := uint64(estimatedSize * 80 / 1000)
-	if fee < 80 {
-		fee = 80
+	fee := uint64(estimatedSize*satPerKB) / 1000
+	minFee := uint64(satPerKB)
+	if fee < minFee {
+		fee = minFee
 	}
 	totalOut := uint64(0)
 	for _, o := range tx.Outputs {
@@ -778,6 +836,9 @@ func GetCoinNftCode(txHash string, outputIndex uint32) (*bscript.Script, error) 
 	txIDVout := hex.EncodeToString(reversed) + hex.EncodeToString(voutBuf)
 
 	asmStr := "OP_1 OP_PICK OP_3 OP_SPLIT 0x01 0x14 OP_SPLIT OP_DROP OP_TOALTSTACK OP_DROP OP_TOALTSTACK OP_SHA256 OP_CAT OP_FROMALTSTACK OP_CAT OP_OVER OP_TOALTSTACK OP_TOALTSTACK OP_CAT OP_FROMALTSTACK OP_CAT OP_SHA256 OP_CAT OP_OVER 0x01 0x24 OP_SPLIT OP_DROP OP_TOALTSTACK OP_TOALTSTACK OP_SHA256 OP_CAT OP_FROMALTSTACK OP_CAT OP_HASH256 OP_6 OP_PUSH_META 0x01 0x20 OP_SPLIT OP_DROP OP_EQUALVERIFY OP_OVER OP_TOALTSTACK OP_TOALTSTACK OP_CAT OP_FROMALTSTACK OP_CAT OP_SHA256 OP_CAT OP_CAT OP_CAT OP_HASH256 OP_FROMALTSTACK OP_FROMALTSTACK OP_DUP 0x01 0x20 OP_SPLIT OP_DROP OP_3 OP_ROLL OP_EQUALVERIFY OP_SWAP OP_FROMALTSTACK OP_DUP OP_TOALTSTACK OP_EQUAL OP_IF OP_DROP OP_ELSE 0x24 0x" + txIDVout + " OP_EQUALVERIFY OP_ENDIF OP_OVER OP_FROMALTSTACK OP_EQUALVERIFY OP_CAT OP_CAT OP_SHA256 OP_7 OP_PUSH_META OP_EQUALVERIFY OP_DUP OP_HASH160 OP_FROMALTSTACK OP_EQUALVERIFY OP_CHECKSIG OP_RETURN 0x05 0x33436f6465"
+	// 与 NFT.parseNFTCodeASM / getFTmintCode 一致：先 collapse 0xNN 0x<data> 再 strip，否则 0x01 0x14 会变成独立 token「01」「14」，
+	// NewFromASM 按 hex 推成非最小 push，链上 mint 输入 0 会报 Data push larger than necessary。
+	asmStr = collapseTbcMintASM(asmStr)
 	asmStr = strip0xHexPushesInASM(asmStr)
 	return bscript.NewFromASM(asmStr)
 }
@@ -846,6 +907,16 @@ func GetCoinMintCode(adminAddress, receiveAddress, codeHash string, tapeSize int
 }
 
 // --- Utility helpers ---
+
+// stableCoinTapeDecimalASM 与 tbc-contract stableCoin.js 一致：
+// const decimalHex = decimal.toString(16).padStart(2, "0");
+// 即 ASM 中为两位十六进制字面量（如 06），而非 OP_6，避免与 JS 构建的 tape 字节长/tapeSize 不一致导致 mint 合约 OP_SPLIT 等失败。
+func stableCoinTapeDecimalASM(decimal int) string {
+	if decimal < 0 {
+		return "00"
+	}
+	return fmt.Sprintf("%02x", decimal)
+}
 
 func sha256Hex(data []byte) string {
 	h := sha256.Sum256(data)

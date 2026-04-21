@@ -15,6 +15,9 @@
 //	# 可选：PIGGY_FETCH_UTXO_ADDRESS 覆盖默认主网注资地址（默认 1P2to…，与 FetchUTXO/GetPiggyBankCode 一致）；主网跑法须 TBC_NETWORK=mainnet
 //	go test -tags=integration -v ./lib/contract -run TestPiggyBank_Integration_FreezeUnfreeze_Broadcast -count=1
 //
+//	固定 UTXO 与 JS 离线对齐（不广播）：testdata/piggybank_freeze_fixture.json + TestPiggyBank_FreezeFixture_piggy_freeze_001；
+//	生成对比报告：仓库根目录执行 npm run piggy-freeze-fixture → testdata/piggybank_test.json。
+//
 //	仅测「TBC 定时锁解冻 + 广播」（链上已有一笔冻结交易）：
 //	export PIGGY_UNFREEZE_ONLY=1
 //	export PIGGY_FREEZE_TXID=<冻结交易 txid>

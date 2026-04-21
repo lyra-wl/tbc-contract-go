@@ -1,0 +1,147 @@
+{
+  "howToRun": "node scripts/nft_create_collection_fixture_compare.mjs（依赖 go、tbc-contract-go、tbc-contract、tbc-lib-js）。读取 nft_create_collection_fixture.json，不广播、不上链。",
+  "fixturePath": "tbc-contract-go/lib/contract/testdata/nft_create_collection_fixture.json",
+  "fixture": {
+    "test_id": "nft_collection_001",
+    "disabled": false,
+    "description": "NFT 合集创世：NFT.createCollection / CreateCollection。需足够 TBC 输入支付 supply×100 sat 铸币槽 + 手续费 + 找零。",
+    "operation": "nft_create_collection",
+    "inputs": {
+      "private_key_wif": "<redacted>",
+      "network": "testnet",
+      "address_mint_slots": "1FRRnxkUwwGKCdbpaeeuz8B6C3F1vJGBFF",
+      "collection_data": {
+        "name": "MyCollection",
+        "description": "合集描述（会进 OP_RETURN tape JSON）",
+        "supply": 3,
+        "file": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+      },
+      "utxos": [
+        {
+          "txid": "7690eb706b0edf31fe9892f501a2833e8cc57275ad53975533e1f3b566b4adac",
+          "vout": 1,
+          "satoshis": 896359698,
+          "script": "76a9149e307092aa3ad78247f49df24bfa499bc835708188ac"
+        }
+      ]
+    },
+    "expected": {
+      "description": "Go 侧 CollectionData JSON 键与 nft.ts 一致：collectionName/description/supply/file；找零与 JS 一致指向 address_mint_slots。输出含 1 笔 tape(0sat) + supply 笔 100sat 铸币槽 + 找零。本对照脚本不广播。"
+    }
+  },
+  "generatedAt": "2026-04-17T10:42:22.987Z",
+  "meta": {
+    "mode": "fixed_utxo",
+    "network": "testnet",
+    "addressMintSlots": "1FRRnxkUwwGKCdbpaeeuz8B6C3F1vJGBFF",
+    "supply": 3,
+    "ftFeeSatPerKbEnv": "80",
+    "nftFeeSatPerKbEnv": "80",
+    "fixtureTestId": "nft_collection_001",
+    "broadcast": false
+  },
+  "utxoForJs": {
+    "txId": "7690eb706b0edf31fe9892f501a2833e8cc57275ad53975533e1f3b566b4adac",
+    "outputIndex": 1,
+    "satoshis": 896359698,
+    "script": "76a9149e307092aa3ad78247f49df24bfa499bc835708188ac",
+    "apiTxid": "7690eb706b0edf31fe9892f501a2833e8cc57275ad53975533e1f3b566b4adac"
+  },
+  "go": {
+    "txRawHex": "0a00000001acadb466b5f3e133559753ad7572c58c3e83a201f59298fe31df0e6b70eb9076010000006b483045022100e8bc07cd82fc825b431e217c38c2006951a0bba17e97abe6badaa35ba832e600022002c50a1710771a87a7c4e0b34abe68d89e61b01c886ad3fe30d3d4ced5ff57dd4121039b199479c763e6e0547e78a96735a7ed709a703eea4f0ef801c6c3fa27811f79ffffffff050000000000000000f3006a4ce97b22636f6c6c656374696f6e4e616d65223a224d79436f6c6c656374696f6e222c226465736372697074696f6e223a22e59088e99b86e68f8fe8bfb0efbc88e4bc9ae8bf9b204f505f52455455524e2074617065204a534f4eefbc89222c22737570706c79223a332c2266696c65223a22646174613a696d6167652f706e673b6261736536342c6956424f5277304b47676f414141414e5355684555674141414145414141414243415941414141664663534a4141414144556c4551565234326d50387a3842514477414568514741684b6d4d495141414141424a52553545726b4a6767673d3d227d054e5461706564000000000000002876a9149e307092aa3ad78247f49df24bfa499bc835708188ac6a0d5630204d696e74204e486f6c6464000000000000002876a9149e307092aa3ad78247f49df24bfa499bc835708188ac6a0d5630204d696e74204e486f6c6464000000000000002876a9149e307092aa3ad78247f49df24bfa499bc835708188ac6a0d5630204d696e74204e486f6c64b45b6d35000000001976a9149e307092aa3ad78247f49df24bfa499bc835708188ac00000000",
+    "version": 10,
+    "inputsTotalSat": 896359698,
+    "outputsTotalSat": 896359648,
+    "impliedFeeSat": 50,
+    "outputs": [
+      {
+        "index": 0,
+        "satoshis": 0,
+        "scriptHexLen": 486,
+        "scriptHex": "006a4ce97b22636f6c6c656374696f6e4e616d65223a224d79436f6c6c656374696f6e222c226465736372697074696f6e223a22e59088e99b86e68f8fe8bfb0efbc88e4bc9ae8bf9b204f505f52455455524e2074617065204a534f4eefbc89222c22737570706c79223a332c2266696c65223a22646174613a696d6167652f706e673b6261736536342c6956424f5277304b47676f414141414e5355684555674141414145414141414243415941414141664663534a4141414144556c4551565234326d50387a3842514477414568514741684b6d4d495141414141424a52553545726b4a6767673d3d227d054e54617065",
+        "outputKind": "tape"
+      },
+      {
+        "index": 1,
+        "satoshis": 100,
+        "scriptHexLen": 80,
+        "scriptHex": "76a9149e307092aa3ad78247f49df24bfa499bc835708188ac6a0d5630204d696e74204e486f6c64",
+        "outputKind": "mint_slot"
+      },
+      {
+        "index": 2,
+        "satoshis": 100,
+        "scriptHexLen": 80,
+        "scriptHex": "76a9149e307092aa3ad78247f49df24bfa499bc835708188ac6a0d5630204d696e74204e486f6c64",
+        "outputKind": "mint_slot"
+      },
+      {
+        "index": 3,
+        "satoshis": 100,
+        "scriptHexLen": 80,
+        "scriptHex": "76a9149e307092aa3ad78247f49df24bfa499bc835708188ac6a0d5630204d696e74204e486f6c64",
+        "outputKind": "mint_slot"
+      },
+      {
+        "index": 4,
+        "satoshis": 896359348,
+        "scriptHexLen": 50,
+        "scriptHex": "76a9149e307092aa3ad78247f49df24bfa499bc835708188ac",
+        "outputKind": "change"
+      }
+    ]
+  },
+  "js": {
+    "txRawHex": "0a00000001acadb466b5f3e133559753ad7572c58c3e83a201f59298fe31df0e6b70eb9076010000006b483045022100e8bc07cd82fc825b431e217c38c2006951a0bba17e97abe6badaa35ba832e600022002c50a1710771a87a7c4e0b34abe68d89e61b01c886ad3fe30d3d4ced5ff57dd4121039b199479c763e6e0547e78a96735a7ed709a703eea4f0ef801c6c3fa27811f79ffffffff050000000000000000f3006a4ce97b22636f6c6c656374696f6e4e616d65223a224d79436f6c6c656374696f6e222c226465736372697074696f6e223a22e59088e99b86e68f8fe8bfb0efbc88e4bc9ae8bf9b204f505f52455455524e2074617065204a534f4eefbc89222c22737570706c79223a332c2266696c65223a22646174613a696d6167652f706e673b6261736536342c6956424f5277304b47676f414141414e5355684555674141414145414141414243415941414141664663534a4141414144556c4551565234326d50387a3842514477414568514741684b6d4d495141414141424a52553545726b4a6767673d3d227d054e5461706564000000000000002876a9149e307092aa3ad78247f49df24bfa499bc835708188ac6a0d5630204d696e74204e486f6c6464000000000000002876a9149e307092aa3ad78247f49df24bfa499bc835708188ac6a0d5630204d696e74204e486f6c6464000000000000002876a9149e307092aa3ad78247f49df24bfa499bc835708188ac6a0d5630204d696e74204e486f6c64b45b6d35000000001976a9149e307092aa3ad78247f49df24bfa499bc835708188ac00000000",
+    "version": 10,
+    "inputsTotalSat": 896359698,
+    "outputsTotalSat": 896359648,
+    "impliedFeeSat": 50,
+    "outputs": [
+      {
+        "index": 0,
+        "satoshis": 0,
+        "scriptHexLen": 486,
+        "scriptHex": "006a4ce97b22636f6c6c656374696f6e4e616d65223a224d79436f6c6c656374696f6e222c226465736372697074696f6e223a22e59088e99b86e68f8fe8bfb0efbc88e4bc9ae8bf9b204f505f52455455524e2074617065204a534f4eefbc89222c22737570706c79223a332c2266696c65223a22646174613a696d6167652f706e673b6261736536342c6956424f5277304b47676f414141414e5355684555674141414145414141414243415941414141664663534a4141414144556c4551565234326d50387a3842514477414568514741684b6d4d495141414141424a52553545726b4a6767673d3d227d054e54617065",
+        "outputKind": "tape"
+      },
+      {
+        "index": 1,
+        "satoshis": 100,
+        "scriptHexLen": 80,
+        "scriptHex": "76a9149e307092aa3ad78247f49df24bfa499bc835708188ac6a0d5630204d696e74204e486f6c64",
+        "outputKind": "mint_slot"
+      },
+      {
+        "index": 2,
+        "satoshis": 100,
+        "scriptHexLen": 80,
+        "scriptHex": "76a9149e307092aa3ad78247f49df24bfa499bc835708188ac6a0d5630204d696e74204e486f6c64",
+        "outputKind": "mint_slot"
+      },
+      {
+        "index": 3,
+        "satoshis": 100,
+        "scriptHexLen": 80,
+        "scriptHex": "76a9149e307092aa3ad78247f49df24bfa499bc835708188ac6a0d5630204d696e74204e486f6c64",
+        "outputKind": "mint_slot"
+      },
+      {
+        "index": 4,
+        "satoshis": 896359348,
+        "scriptHexLen": 50,
+        "scriptHex": "76a9149e307092aa3ad78247f49df24bfa499bc835708188ac",
+        "outputKind": "change"
+      }
+    ]
+  },
+  "analysis": {
+    "txRawHexIdentical": true,
+    "impliedFeeSatDiff": 0,
+    "versionMatch": true,
+    "outputCountMatch": true,
+    "notes": [
+      "Go 与 JS 原始交易 hex 一致（未广播）。"
+    ]
+  }
+}

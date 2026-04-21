@@ -1,68 +1,90 @@
 {
-  "howToRun": "设置与 cmd/piggy_freeze_run 相同的环境变量后执行 npm run piggy-compare；依赖 go 与 tbc-contract-go 模块。不广播。若 txId 字节序导致 JS 失败，脚本会尝试反转 txid 后重试。",
-  "alignmentGoVsPiggyBankTs": {
-    "freezeFee": "Go lib/contract/piggybank.go 中 FreezeTBC 与 piggyBank.ts 一致：add 定时锁前先 JSEstimateSize；fee = (est<1000 ? 80 : ceil(est/1000*80))；找零 = 输入总额 − 冻结额 − fee；冻结费率固定 80 sat/KB（与 TS 一致）。",
-    "transactionVersion": "Go newFTTx 与 tbc-lib-js Transaction 默认均为 version 10。"
+  "howToRun": "node scripts/piggy_freeze_fixture_compare.mjs（依赖 go、tbc-contract-go、tbc-contract、tbc-lib-js）。读取 piggybank_freeze_fixture.json，不广播。",
+  "fixturePath": "tbc-contract-go/lib/contract/testdata/piggybank_freeze_fixture.json",
+  "fixture": {
+    "test_id": "piggy_freeze_001",
+    "disabled": false,
+    "description": "PiggyBank 冻结：tbc_number 为人类可读 TBC（6 位小数）；lock_time 为脚本内 uint32 LE；utxos 为可花费 P2PKH 输入。",
+    "operation": "piggy_freeze",
+    "inputs": {
+      "private_key_wif": "<redacted>",
+      "network": "testnet",
+      "tbc_number": 0.001,
+      "lock_time": 100000,
+      "utxos": [
+        {
+          "txid": "ed56d507d9bc6aa0d55adcb12394a7c2e97b3c5f78379da8c343e64fdaca8573",
+          "vout": 2,
+          "satoshis": 9991680,
+          "script": "76a9149e307092aa3ad78247f49df24bfa499bc835708188ac"
+        }
+      ]
+    },
+    "expected": {
+      "description": "tx_raw 应对齐 piggyBank._freezeTBC / FreezeTBCWithSign；运行 scripts/piggy_freeze_fixture_compare.mjs 后见 piggybank_test.json"
+    }
   },
-  "generatedAt": "2026-04-16T07:51:45.941Z",
+  "generatedAt": "2026-04-17T10:17:57.131Z",
   "meta": {
+    "mode": "fixed_utxo",
     "network": "testnet",
-    "lockTime": 39866,
+    "lockTime": 100000,
     "tbcNumber": 0.001,
-    "fetchUtxoAddress": "1P2toD4aKcUsxhTCbUjz5mcd3ajAJB9G1W",
-    "fetchAmountTbc": 0.101,
-    "extraTbc": 0.1,
-    "ftFeeSatPerKbEnv": "500"
+    "fetchUtxoAddress": "",
+    "fetchAmountTbc": 0,
+    "extraTbc": 0,
+    "ftFeeSatPerKbEnv": "500",
+    "fixtureTestId": "piggy_freeze_001"
   },
   "utxoForJs": {
-    "txId": "37a8d4ec0b44decc2c0c6b410d9ab93dbfd09726613e1d95c6db6319aa62c002",
-    "outputIndex": 1,
-    "satoshis": 9989997634,
-    "script": "76a914f1ae6bc0533700b21224c8427be48c596e902f2088ac",
-    "apiTxid": "37a8d4ec0b44decc2c0c6b410d9ab93dbfd09726613e1d95c6db6319aa62c002"
+    "txId": "ed56d507d9bc6aa0d55adcb12394a7c2e97b3c5f78379da8c343e64fdaca8573",
+    "outputIndex": 2,
+    "satoshis": 9991680,
+    "script": "76a9149e307092aa3ad78247f49df24bfa499bc835708188ac",
+    "apiTxid": "ed56d507d9bc6aa0d55adcb12394a7c2e97b3c5f78379da8c343e64fdaca8573"
   },
   "go": {
-    "txRawHex": "0a0000000102c062aa1963dbc6951d3e612697d0bf3db99a0d416b0c2cccde440becd4a837010000006a47304402204656310f831f240329e3bae625d369840104096dccdaab19e08edf5d622746fd02204c0472d892f4d93aa37e14937a8699dbd2145cc15ac2fca651c1508a4901d3de4121029999c2ae5bb218695277a54e806330115207a3834667ebe37f86a2120d3d5b57ffffffff02e8030000000000003576a914f1ae6bc0533700b21224c8427be48c596e902f2088ad56ba01247f778104ffffffff819e518804ba9b00008152ba81a151870a407353020000001976a914f1ae6bc0533700b21224c8427be48c596e902f2088ac00000000",
+    "txRawHex": "0a000000017385cada4fe643c3a89d37785f3c7be9c2a79423b1dc5ad5a06abcd907d556ed020000006b483045022100c425b0243e5cfba3d89faeb74cdd1f1b65e6d4301016ecc6c1c300616eed531a0220530a96f583aa4bb2c5fe75b61cfd3526a8f7ca6fe75a3bc025e90921d4d8175b4121039b199479c763e6e0547e78a96735a7ed709a703eea4f0ef801c6c3fa27811f79ffffffff02e8030000000000003576a9149e307092aa3ad78247f49df24bfa499bc835708188ad56ba01247f778104ffffffff819e518804a08601008152ba81a15187c8719800000000001976a9149e307092aa3ad78247f49df24bfa499bc835708188ac00000000",
     "version": 10,
-    "inputsTotalSat": 9989997634,
-    "outputsTotalSat": 9989997554,
+    "inputsTotalSat": 9991680,
+    "outputsTotalSat": 9991600,
     "impliedFeeSat": 80,
     "outputs": [
       {
         "index": 0,
         "satoshis": 1000,
         "scriptHexLen": 106,
-        "scriptHex": "76a914f1ae6bc0533700b21224c8427be48c596e902f2088ad56ba01247f778104ffffffff819e518804ba9b00008152ba81a15187",
+        "scriptHex": "76a9149e307092aa3ad78247f49df24bfa499bc835708188ad56ba01247f778104ffffffff819e518804a08601008152ba81a15187",
         "likelyPiggyBankScript": true
       },
       {
         "index": 1,
-        "satoshis": 9989996554,
+        "satoshis": 9990600,
         "scriptHexLen": 50,
-        "scriptHex": "76a914f1ae6bc0533700b21224c8427be48c596e902f2088ac",
+        "scriptHex": "76a9149e307092aa3ad78247f49df24bfa499bc835708188ac",
         "likelyPiggyBankScript": false
       }
     ]
   },
   "js": {
-    "txRawHex": "0a0000000102c062aa1963dbc6951d3e612697d0bf3db99a0d416b0c2cccde440becd4a837010000006a47304402204656310f831f240329e3bae625d369840104096dccdaab19e08edf5d622746fd02204c0472d892f4d93aa37e14937a8699dbd2145cc15ac2fca651c1508a4901d3de4121029999c2ae5bb218695277a54e806330115207a3834667ebe37f86a2120d3d5b57ffffffff02e8030000000000003576a914f1ae6bc0533700b21224c8427be48c596e902f2088ad56ba01247f778104ffffffff819e518804ba9b00008152ba81a151870a407353020000001976a914f1ae6bc0533700b21224c8427be48c596e902f2088ac00000000",
+    "txRawHex": "0a000000017385cada4fe643c3a89d37785f3c7be9c2a79423b1dc5ad5a06abcd907d556ed020000006b483045022100c425b0243e5cfba3d89faeb74cdd1f1b65e6d4301016ecc6c1c300616eed531a0220530a96f583aa4bb2c5fe75b61cfd3526a8f7ca6fe75a3bc025e90921d4d8175b4121039b199479c763e6e0547e78a96735a7ed709a703eea4f0ef801c6c3fa27811f79ffffffff02e8030000000000003576a9149e307092aa3ad78247f49df24bfa499bc835708188ad56ba01247f778104ffffffff819e518804a08601008152ba81a15187c8719800000000001976a9149e307092aa3ad78247f49df24bfa499bc835708188ac00000000",
     "version": 10,
-    "inputsTotalSat": 9989997634,
-    "outputsTotalSat": 9989997554,
+    "inputsTotalSat": 9991680,
+    "outputsTotalSat": 9991600,
     "impliedFeeSat": 80,
     "outputs": [
       {
         "index": 0,
         "satoshis": 1000,
         "scriptHexLen": 106,
-        "scriptHex": "76a914f1ae6bc0533700b21224c8427be48c596e902f2088ad56ba01247f778104ffffffff819e518804ba9b00008152ba81a15187",
+        "scriptHex": "76a9149e307092aa3ad78247f49df24bfa499bc835708188ad56ba01247f778104ffffffff819e518804a08601008152ba81a15187",
         "likelyPiggyBankScript": true
       },
       {
         "index": 1,
-        "satoshis": 9989996554,
+        "satoshis": 9990600,
         "scriptHexLen": 50,
-        "scriptHex": "76a914f1ae6bc0533700b21224c8427be48c596e902f2088ac",
+        "scriptHex": "76a9149e307092aa3ad78247f49df24bfa499bc835708188ac",
         "likelyPiggyBankScript": false
       }
     ]

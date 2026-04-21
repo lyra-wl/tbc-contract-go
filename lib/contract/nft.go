@@ -39,12 +39,12 @@ type NFTInfo struct {
 	NftIcon              string
 }
 
-// CollectionData createCollection 参数。
+// CollectionData createCollection 参数（JSON 与 tbc-contract/lib/contract/nft.ts 中 CollectionData 一致：collectionName / description / supply / file）。
 type CollectionData struct {
-	Name        string
-	Description string
-	Supply      int
-	File        string
+	CollectionName string `json:"collectionName"`
+	Description    string `json:"description"`
+	Supply         int    `json:"supply"`
+	File           string `json:"file"`
 }
 
 // NFTData createNFT / tape 内容。
@@ -202,11 +202,19 @@ func BuildNFTUnlockScript(priv *bec.PrivateKey, currentTX *bt.Tx, preTX *bt.Tx, 
 	}
 	sigBytes := sig.Serialise()
 	sigBytes = append(sigBytes, byte(sighash.AllForkID))
-	sigHex := fmt.Sprintf("%02x%s", len(sigBytes), hex.EncodeToString(sigBytes))
 	pub := priv.PubKey().SerialiseCompressed()
-	pubHex := fmt.Sprintf("%02x%s", len(pub), hex.EncodeToString(pub))
-	h := sigHex + pubHex + cur + prepre + pre
-	return bscript.NewFromHexString(h)
+	txdata, err := hex.DecodeString(cur + prepre + pre)
+	if err != nil {
+		return nil, err
+	}
+	var sb bscript.Script
+	if err := sb.AppendPushData(sigBytes); err != nil {
+		return nil, err
+	}
+	if err := sb.AppendPushData(pub); err != nil {
+		return nil, err
+	}
+	return bscript.NewFromBytes(append(sb.Bytes(), txdata...)), nil
 }
 
 type nftIn0Unlocker struct {
@@ -216,6 +224,10 @@ type nftIn0Unlocker struct {
 }
 
 func (u *nftIn0Unlocker) UnlockingScript(ctx context.Context, tx *bt.Tx, p bt.UnlockerParams) (*bscript.Script, error) {
+	shf := p.SigHashFlags
+	if shf == 0 {
+		shf = sighash.AllForkID
+	}
 	var cur, prepre, pre string
 	var err error
 	if u.useV0Txdata {
@@ -242,7 +254,7 @@ func (u *nftIn0Unlocker) UnlockingScript(ctx context.Context, tx *bt.Tx, p bt.Un
 			return nil, err
 		}
 	}
-	sh, err := tx.CalcInputSignatureHash(p.InputIdx, p.SigHashFlags)
+	sh, err := tx.CalcInputSignatureHash(p.InputIdx, shf)
 	if err != nil {
 		return nil, err
 	}
@@ -251,18 +263,30 @@ func (u *nftIn0Unlocker) UnlockingScript(ctx context.Context, tx *bt.Tx, p bt.Un
 		return nil, err
 	}
 	sigBytes := sig.Serialise()
-	sigBytes = append(sigBytes, byte(sighash.AllForkID))
-	sigHex := fmt.Sprintf("%02x%s", len(sigBytes), hex.EncodeToString(sigBytes))
+	sigBytes = append(sigBytes, byte(shf))
 	pub := u.priv.PubKey().SerialiseCompressed()
-	pubHex := fmt.Sprintf("%02x%s", len(pub), hex.EncodeToString(pub))
-	h := sigHex + pubHex + cur + prepre + pre
-	return bscript.NewFromHexString(h)
+	txdata, err := hex.DecodeString(cur + prepre + pre)
+	if err != nil {
+		return nil, err
+	}
+	var sb bscript.Script
+	if err := sb.AppendPushData(sigBytes); err != nil {
+		return nil, err
+	}
+	if err := sb.AppendPushData(pub); err != nil {
+		return nil, err
+	}
+	return bscript.NewFromBytes(append(sb.Bytes(), txdata...)), nil
 }
 
 type nftIn1Unlocker struct{ priv *bec.PrivateKey }
 
 func (u *nftIn1Unlocker) UnlockingScript(ctx context.Context, tx *bt.Tx, p bt.UnlockerParams) (*bscript.Script, error) {
-	sh, err := tx.CalcInputSignatureHash(p.InputIdx, p.SigHashFlags)
+	shf := p.SigHashFlags
+	if shf == 0 {
+		shf = sighash.AllForkID
+	}
+	sh, err := tx.CalcInputSignatureHash(p.InputIdx, shf)
 	if err != nil {
 		return nil, err
 	}
@@ -270,7 +294,7 @@ func (u *nftIn1Unlocker) UnlockingScript(ctx context.Context, tx *bt.Tx, p bt.Un
 	if err != nil {
 		return nil, err
 	}
-	return bscript.NewP2PKHUnlockingScript(u.priv.PubKey().SerialiseCompressed(), sig.Serialise(), p.SigHashFlags)
+	return bscript.NewP2PKHUnlockingScript(u.priv.PubKey().SerialiseCompressed(), sig.Serialise(), shf)
 }
 
 // p2pkhOrMintPrefixUnlocker 用于 createNFT / batchCreateNFT 首笔 mint 输入：锁定脚本为 P2PKH + OP_RETURN 后缀，
@@ -336,10 +360,6 @@ func CreateCollection(address string, priv *bec.PrivateKey, data *CollectionData
 	if err != nil {
 		return "", err
 	}
-	addr, err := bscript.NewAddressFromPublicKey(priv.PubKey(), true)
-	if err != nil {
-		return "", err
-	}
 	tx := newFTTx()
 	if err := tx.FromUTXOs(utxos...); err != nil {
 		return "", err
@@ -352,7 +372,8 @@ func CreateCollection(address string, priv *bec.PrivateKey, data *CollectionData
 		}
 		tx.AddOutput(&bt.Output{LockingScript: ms, Satoshis: 100})
 	}
-	if err := tx.ChangeToAddress(addr.AddressString, newFeeQuoteNFT()); err != nil {
+	// 与 NFT.createCollection 一致：tx.change(address) 使用首参 address（铸币槽接收方），非签名私钥对应地址。
+	if err := tx.ChangeToAddress(address, newFeeQuoteNFT()); err != nil {
 		return "", err
 	}
 	ctx := context.Background()
