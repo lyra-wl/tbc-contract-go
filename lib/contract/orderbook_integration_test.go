@@ -55,8 +55,12 @@
 //	go test -tags=integration -v ./lib/contract -run TestOrderBook_Integration_FullFlowJSAligned -count=1
 //
 //	# ---- 撮合仅构建、与 JS 对比（写入 testdata/orderbook_test.json）----
-//	# 根目录先：npm run orderbook-match-offline-dump
+//	# 根目录先：npm run orderbook-match-offline-dump（会广播卖/买单）
 //	RUN_REAL_OB_TEST=1 go test -tags=integration -v ./lib/contract -run TestOrderBook_Integration_MatchOfflineCompare -count=1
+//
+//	# ---- 全量链下构造（不广播卖/买/撤/撮合），version 2 JSON + Go 撮合 raw 逐字节比对 ----
+//	# 根目录：npm run orderbook-offline-full-dump
+//	# cd tbc-contract-go && RUN_REAL_OB_TEST=1 go test -tags=integration -v ./lib/contract -run TestOrderBook_Integration_MatchHexFromFullDumpJSON -count=1
 package contract
 
 import (

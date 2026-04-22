@@ -13,6 +13,11 @@
 //	# 可选：NFT_FEE_SAT_PER_KB（每 KB 费率 sat；测试网常见 66 insufficient priority，本测试在未设置时默认 500）
 //	# 可选：NFT_SKIP_TRANSFER=1 仅测合集+铸造，不广播转移
 //	go test -tags=integration -v ./lib/contract -run TestNFT_Integration_CollectionMintTransfer_Broadcast -count=1
+//
+// 离线对照（不广播、结果写入 testdata/nft_test.json）：仓库根执行
+//	node scripts/nft_integration_fixture_compare.mjs
+//	见 testdata/nft_integration_offline_fixture.json。
+//	Go TransferNFT 与 nft.ts 一致：先零费率找零并签名，再按 fee 前估算调找零（含 per-KB 分支 slop），再签第二次。
 
 package contract
 

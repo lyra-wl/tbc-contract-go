@@ -1314,6 +1314,15 @@ func newFeeQuoteNFT() *bt.FeeQuote {
 	return newFeeQuoteWithSatPerKB(nftFeeSatPerKBFromEnv())
 }
 
+// newFeeQuoteZeroNFTMining 标准/数据挖矿费率为 0，仅用于先写入全额找零再由 AdjustImplicitFeeToTarget 对齐 nft.ts 的 fee/feePerKb。
+func newFeeQuoteZeroNFTMining() *bt.FeeQuote {
+	z := bt.FeeUnit{Satoshis: 0, Bytes: 1000}
+	fq := bt.NewFeeQuote()
+	fq.AddQuote(bt.FeeTypeStandard, &bt.Fee{FeeType: bt.FeeTypeStandard, MiningFee: z, RelayFee: z})
+	fq.AddQuote(bt.FeeTypeData, &bt.Fee{FeeType: bt.FeeTypeData, MiningFee: z, RelayFee: z})
+	return fq
+}
+
 func hexDecode(s string) []byte {
 	b, _ := hex.DecodeString(s)
 	return b

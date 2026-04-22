@@ -49,11 +49,11 @@ type CollectionData struct {
 
 // NFTData createNFT / tape 内容。
 type NFTData struct {
-	NftName     string
-	Symbol      string
-	Description string
-	Attributes  string
-	File        string
+	NftName     string `json:"nftName"`
+	Symbol      string `json:"symbol"`
+	Description string `json:"description"`
+	Attributes  string `json:"attributes"`
+	File        string `json:"file"`
 }
 
 // NFT 非同质化代币句柄。
@@ -383,6 +383,48 @@ func CreateCollection(address string, priv *bec.PrivateKey, data *CollectionData
 	return hex.EncodeToString(tx.Bytes()), nil
 }
 
+// nftTransferPerKBFeeEstimateSlopBytes：tbc-lib-js 在 transfer 的 feePerKb 前 getEstimateSize() 常略大于
+// Go 首次签名后的线长（DER 在后续 seal 中可能变短），差值典型约数十字节；仅在 per-KB 分支加入以免少算 1～2 sat 手续费。
+const nftTransferPerKBFeeEstimateSlopBytes = 32
+
+// finalizeNFTTransferJSStyleFee 对齐 nft.ts transferNFT / transferNFTWithTBC：在 change 与 FillAllInputs 之后，
+// 按 JSEstimateSize 与 fee(satPerKb)/feePerKb 规则计算目标总手续费，再 AdjustImplicitFeeToTarget（调用方需再次 FillAllInputs）。
+func finalizeNFTTransferJSStyleFee(tx *bt.Tx) error {
+	base := tx.JSEstimateSize()
+	est := base
+	if base >= 1000 {
+		est = base + nftTransferPerKBFeeEstimateSlopBytes
+	}
+	satPerKB := nftFeeSatPerKBFromEnv()
+	var targetFee int
+	if est < 1000 {
+		targetFee = satPerKB
+	} else {
+		targetFee = int(bt.CeilMiningFeeFromEstimatedBytes(est, bt.FeeUnit{Satoshis: satPerKB, Bytes: 1000}))
+	}
+	return tx.AdjustImplicitFeeToTarget(targetFee)
+}
+
+// applyNFTCreateNFTJSFee 对齐 nft.ts createNFT：在 fee/change 前按含找零脚本估算字节，<1000 时 flat fee（satPerKb 来自 NFT_FEE_SAT_PER_KB），否则按 KB 进位；先 0 费率找零再 AdjustImplicitFeeToTarget。
+func applyNFTCreateNFTJSFee(tx *bt.Tx, changeAddr string) error {
+	changeLS, err := bscript.NewP2PKHFromAddress(changeAddr)
+	if err != nil {
+		return err
+	}
+	est := tx.JSEstimateSizeWithPendingChange(changeLS)
+	satPerKB := nftFeeSatPerKBFromEnv()
+	var targetFee int
+	if est < 1000 {
+		targetFee = satPerKB
+	} else {
+		targetFee = int(bt.CeilMiningFeeFromEstimatedBytes(est, bt.FeeUnit{Satoshis: satPerKB, Bytes: 1000}))
+	}
+	if err := tx.ChangeToAddress(changeAddr, newFeeQuoteZeroNFTMining()); err != nil {
+		return err
+	}
+	return tx.AdjustImplicitFeeToTarget(targetFee)
+}
+
 // CreateNFT 对齐 NFT.createNFT。
 func CreateNFT(collectionID string, address string, priv *bec.PrivateKey, data *NFTData, utxos []*bt.UTXO, nftUtxo *bt.UTXO) (string, error) {
 	if data.File == "" {
@@ -414,7 +456,7 @@ func CreateNFT(collectionID string, address string, priv *bec.PrivateKey, data *
 	tx.AddOutput(&bt.Output{LockingScript: code, Satoshis: 200})
 	tx.AddOutput(&bt.Output{LockingScript: hold, Satoshis: 100})
 	tx.AddOutput(&bt.Output{LockingScript: tape, Satoshis: 0})
-	if err := tx.ChangeToAddress(addr.AddressString, newFeeQuoteNFT()); err != nil {
+	if err := applyNFTCreateNFTJSFee(tx, addr.AddressString); err != nil {
 		return "", err
 	}
 	ctx := context.Background()
@@ -488,7 +530,7 @@ func BatchCreateNFT(collectionID string, address string, priv *bec.PrivateKey, d
 		tx.AddOutput(&bt.Output{LockingScript: code, Satoshis: 200})
 		tx.AddOutput(&bt.Output{LockingScript: hold, Satoshis: 100})
 		tx.AddOutput(&bt.Output{LockingScript: tape, Satoshis: 0})
-		if err := tx.ChangeToAddress(addr.AddressString, newFeeQuoteNFT()); err != nil {
+		if err := applyNFTCreateNFTJSFee(tx, addr.AddressString); err != nil {
 			return nil, err
 		}
 		if err := tx.FillAllInputs(ctx, &p2pkhOrMintPrefixUnlockerGetter{priv: priv}); err != nil {
@@ -532,19 +574,23 @@ func (n *NFT) TransferNFT(addressFrom, addressTo string, priv *bec.PrivateKey, u
 	tx.AddOutput(&bt.Output{LockingScript: code, Satoshis: 200})
 	tx.AddOutput(&bt.Output{LockingScript: hold, Satoshis: 100})
 	tx.AddOutput(&bt.Output{LockingScript: tape, Satoshis: 0})
-	if !batch {
-		if err := tx.ChangeToAddress(addressFrom, newFeeQuoteNFT()); err != nil {
-			return "", err
-		}
-	} else if len(utxos) > 0 {
-		if err := tx.ChangeToAddress(addressFrom, newFeeQuoteNFT()); err != nil {
+	needChange := !batch || len(utxos) > 0
+	if needChange {
+		if err := tx.ChangeToAddress(addressFrom, newFeeQuoteZeroNFTMining()); err != nil {
 			return "", err
 		}
 	}
 	ctx := context.Background()
-	ug := &nftTransferUnlockerGetter{priv: priv, preTx: preTx, prePre: prePreTx, useV0: false}
-	if err := tx.FillAllInputs(ctx, ug); err != nil {
+	if err := tx.FillAllInputs(ctx, &nftTransferUnlockerGetter{priv: priv, preTx: preTx, prePre: prePreTx, useV0: false}); err != nil {
 		return "", err
+	}
+	if needChange {
+		if err := finalizeNFTTransferJSStyleFee(tx); err != nil {
+			return "", err
+		}
+		if err := tx.FillAllInputs(ctx, &nftTransferUnlockerGetter{priv: priv, preTx: preTx, prePre: prePreTx, useV0: false}); err != nil {
+			return "", err
+		}
 	}
 	return hex.EncodeToString(tx.Bytes()), nil
 }
@@ -589,12 +635,17 @@ func (n *NFT) TransferNFTWithTBC(addressFrom, addressToNft, addressToTbc string,
 	if err := tx.PayToAddress(addressToTbc, sat); err != nil {
 		return "", err
 	}
-	if err := tx.ChangeToAddress(addressFrom, newFeeQuoteNFT()); err != nil {
+	if err := tx.ChangeToAddress(addressFrom, newFeeQuoteZeroNFTMining()); err != nil {
 		return "", err
 	}
 	ctx := context.Background()
-	ug := &nftTransferUnlockerGetter{priv: priv, preTx: preTx, prePre: prePreTx, useV0: false}
-	if err := tx.FillAllInputs(ctx, ug); err != nil {
+	if err := tx.FillAllInputs(ctx, &nftTransferUnlockerGetter{priv: priv, preTx: preTx, prePre: prePreTx, useV0: false}); err != nil {
+		return "", err
+	}
+	if err := finalizeNFTTransferJSStyleFee(tx); err != nil {
+		return "", err
+	}
+	if err := tx.FillAllInputs(ctx, &nftTransferUnlockerGetter{priv: priv, preTx: preTx, prePre: prePreTx, useV0: false}); err != nil {
 		return "", err
 	}
 	return hex.EncodeToString(tx.Bytes()), nil
@@ -629,12 +680,17 @@ func (n *NFT) TransferNFTV0(addressFrom, addressTo string, priv *bec.PrivateKey,
 	tx.AddOutput(&bt.Output{LockingScript: code, Satoshis: 200})
 	tx.AddOutput(&bt.Output{LockingScript: hold, Satoshis: 100})
 	tx.AddOutput(&bt.Output{LockingScript: tape, Satoshis: 0})
-	if err := tx.ChangeToAddress(addressFrom, newFeeQuoteNFT()); err != nil {
+	if err := tx.ChangeToAddress(addressFrom, newFeeQuoteZeroNFTMining()); err != nil {
 		return "", err
 	}
 	ctx := context.Background()
-	ug := &nftTransferUnlockerGetter{priv: priv, preTx: preTx, prePre: prePreTx, useV0: true}
-	if err := tx.FillAllInputs(ctx, ug); err != nil {
+	if err := tx.FillAllInputs(ctx, &nftTransferUnlockerGetter{priv: priv, preTx: preTx, prePre: prePreTx, useV0: true}); err != nil {
+		return "", err
+	}
+	if err := finalizeNFTTransferJSStyleFee(tx); err != nil {
+		return "", err
+	}
+	if err := tx.FillAllInputs(ctx, &nftTransferUnlockerGetter{priv: priv, preTx: preTx, prePre: prePreTx, useV0: true}); err != nil {
 		return "", err
 	}
 	return hex.EncodeToString(tx.Bytes()), nil

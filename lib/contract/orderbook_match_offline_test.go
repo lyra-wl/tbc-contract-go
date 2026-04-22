@@ -41,18 +41,19 @@ type obMatchSummary struct {
 }
 
 type obTestJSON struct {
-	Version       int             `json:"version"`
-	Network       string          `json:"network"`
-	UnitPrice     string          `json:"unitPrice"`
-	SellVolume    string          `json:"sellVolume"`
-	BuyVolume     string          `json:"buyVolume"`
-	FeeRate       string          `json:"feeRate"`
-	SellOrderTxid string          `json:"sellOrderTxid"`
-	BuyOrderTxid  string          `json:"buyOrderTxid"`
-	JS            json.RawMessage `json:"js"`
-	Go            json.RawMessage `json:"go"`
-	Compare       json.RawMessage `json:"compare"`
-	Note          string          `json:"note,omitempty"`
+	Version           int             `json:"version"`
+	Network           string          `json:"network"`
+	UnitPrice         string          `json:"unitPrice"`
+	SellVolume        string          `json:"sellVolume"`
+	BuyVolume         string          `json:"buyVolume"`
+	FeeRate           string          `json:"feeRate"`
+	SellOrderTxid     string          `json:"sellOrderTxid"`
+	BuyOrderTxid      string          `json:"buyOrderTxid"`
+	OfflineFullDump   bool            `json:"offlineFullDump,omitempty"`
+	JS                json.RawMessage `json:"js"`
+	Go                json.RawMessage `json:"go"`
+	Compare           json.RawMessage `json:"compare"`
+	Note              string          `json:"note,omitempty"`
 }
 
 func summarizeMatchTxGo(t *testing.T, rawHex string) *obMatchSummary {
@@ -96,7 +97,7 @@ func readOrderbookTestJSON(t *testing.T) ([]byte, *obTestJSON) {
 	p := filepath.Join("testdata", "orderbook_test.json")
 	raw, err := os.ReadFile(p)
 	if err != nil {
-		t.Fatalf("读取 %s: %v（请先运行 node scripts/orderbook_match_offline_dump.mjs）", p, err)
+		t.Fatalf("读取 %s: %v（请先运行 npm run orderbook-match-offline-dump 或 npm run orderbook-offline-full-dump）", p, err)
 	}
 	var j obTestJSON
 	if err := json.Unmarshal(raw, &j); err != nil {
@@ -111,6 +112,9 @@ func TestOrderBook_Integration_MatchOfflineCompare(t *testing.T) {
 	requireRealOBRun(t)
 	network := orderBookIntegrationNetwork(t)
 	rawFile, j := readOrderbookTestJSON(t)
+	if j.OfflineFullDump {
+		t.Skip("orderbook_test.json 来自 orderbook_offline_full_dump（卖/买单未上链），请用 TestOrderBook_Integration_MatchHexFromFullDumpJSON 或重新 npm run orderbook-match-offline-dump")
+	}
 	if strings.TrimSpace(j.SellOrderTxid) == "" || strings.TrimSpace(j.BuyOrderTxid) == "" {
 		t.Skip("orderbook_test.json 缺少 sellOrderTxid / buyOrderTxid")
 	}
@@ -313,4 +317,145 @@ func reverseHexPairs(h string) string {
 		b[i], b[j] = b[j], b[i]
 	}
 	return hex.EncodeToString(b)
+}
+
+// obFullDumpJS 对应 scripts/orderbook_offline_full_dump.mjs 写出的 js 块（version 2）。
+type obFullDumpJS struct {
+	MakeSell struct {
+		RawHex string `json:"rawHex"`
+	} `json:"makeSell"`
+	MakeBuy struct {
+		RawHex string `json:"rawHex"`
+	} `json:"makeBuy"`
+	Match struct {
+		RawHex string `json:"rawHex"`
+	} `json:"match"`
+	MatchRawHex string `json:"matchRawHex"`
+}
+
+// TestOrderBook_Integration_MatchHexFromFullDumpJSON 读取 testdata/orderbook_test.json（version 2）
+// 中链下构建的卖/买单 raw，在 Go 侧重算撮合 raw，与 js.match.rawHex 逐字节一致则通过。
+// 仓库根：node scripts/orderbook_offline_full_dump.mjs
+func TestOrderBook_Integration_MatchHexFromFullDumpJSON(t *testing.T) {
+	requireRealOBRun(t)
+	network := orderBookIntegrationNetwork(t)
+	rawFile, j := readOrderbookTestJSON(t)
+	if j.Version < 2 {
+		t.Skip("需要 version>=2 的 orderbook_test.json（先运行 node scripts/orderbook_offline_full_dump.mjs）")
+	}
+
+	var root map[string]json.RawMessage
+	if err := json.Unmarshal(rawFile, &root); err != nil {
+		t.Fatalf("unmarshal root: %v", err)
+	}
+	var jsFull obFullDumpJS
+	if err := json.Unmarshal(root["js"], &jsFull); err != nil {
+		t.Fatalf("unmarshal js: %v", err)
+	}
+	sellHex := strings.TrimSpace(jsFull.MakeSell.RawHex)
+	buyHex := strings.TrimSpace(jsFull.MakeBuy.RawHex)
+	wantMatch := strings.TrimSpace(jsFull.Match.RawHex)
+	if wantMatch == "" {
+		wantMatch = strings.TrimSpace(jsFull.MatchRawHex)
+	}
+	if sellHex == "" || buyHex == "" || wantMatch == "" {
+		t.Fatalf("JSON 缺少 js.makeSell.rawHex / js.makeBuy.rawHex / js.match.rawHex")
+	}
+
+	matchPriv := obWIFEnvOrDefault(t, "OB_MATCH_WIF", obJSDefaultMatchWIF)
+	ftContractTxid := envOrDefault("OB_FT_CONTRACT_TXID", obJSDefaultFTContract)
+	ftFeeAddress := envOrDefault("OB_FT_FEE_ADDRESS", obJSDefaultFeeAddress)
+	tbcFeeAddress := envOrDefault("OB_TBC_FEE_ADDRESS", obJSDefaultFeeAddress)
+
+	addrMain := network == "mainnet"
+	matchAddr, _ := bscript.NewAddressFromPublicKey(matchPriv.PubKey(), addrMain)
+
+	sellPreTX, err := bt.NewTxFromString(sellHex)
+	if err != nil {
+		t.Fatalf("parse sell: %v", err)
+	}
+	buyPreTX, err := bt.NewTxFromString(buyHex)
+	if err != nil {
+		t.Fatalf("parse buy: %v", err)
+	}
+
+	sellTxidBytes, err := hex.DecodeString(strings.TrimSpace(j.SellOrderTxid))
+	if err != nil || len(sellTxidBytes) != 32 {
+		t.Fatalf("sellOrderTxid 无效: %q", j.SellOrderTxid)
+	}
+	buyTxidBytes, err := hex.DecodeString(strings.TrimSpace(j.BuyOrderTxid))
+	if err != nil || len(buyTxidBytes) != 32 {
+		t.Fatalf("buyOrderTxid 无效: %q", j.BuyOrderTxid)
+	}
+
+	buyUTXO := &bt.UTXO{
+		TxID:          buyTxidBytes,
+		Vout:          0,
+		Satoshis:      buyPreTX.Outputs[0].Satoshis,
+		LockingScript: buyPreTX.Outputs[0].LockingScript,
+	}
+	ftVout := uint32(1)
+	ftUTXO := &bt.UTXO{
+		TxID:          buyTxidBytes,
+		Vout:          ftVout,
+		Satoshis:      buyPreTX.Outputs[ftVout].Satoshis,
+		LockingScript: buyPreTX.Outputs[ftVout].LockingScript,
+	}
+	sellUTXO := &bt.UTXO{
+		TxID:          sellTxidBytes,
+		Vout:          0,
+		Satoshis:      sellPreTX.Outputs[0].Satoshis,
+		LockingScript: sellPreTX.Outputs[0].LockingScript,
+	}
+
+	ftPrePreTxData, err := api.FetchFtPrePreTxData(buyPreTX, int(ftVout), network)
+	if err != nil {
+		t.Fatalf("FetchFtPrePreTxData: %v", err)
+	}
+
+	tapeScript := buyPreTX.Outputs[ftVout+1].LockingScript.Bytes()
+	ftTapeHex := hex.EncodeToString(tapeScript)
+	ftCodeHex := ftUTXO.LockingScript.String()
+	ftBalance := uint64(0)
+	if len(tapeScript) >= 51 {
+		bal := GetBalanceFromTape(hex.EncodeToString(tapeScript))
+		if bal != nil {
+			ftBalance = bal.Uint64()
+		}
+	}
+
+	feeUTXO, err := api.FetchUTXO(matchAddr.AddressString, 0.02, network)
+	if err != nil {
+		t.Fatalf("FetchUTXO(match): %v", err)
+	}
+
+	ob := NewOrderBook()
+	gotMatch, err := ob.MatchOrder(
+		matchPriv,
+		buyUTXO, buyPreTX,
+		ftUTXO, buyPreTX, ftPrePreTxData,
+		sellUTXO, sellPreTX,
+		[]*bt.UTXO{feeUTXO},
+		ftFeeAddress, tbcFeeAddress,
+		ftCodeHex, ftTapeHex,
+		ftBalance,
+		ftContractTxid,
+	)
+	if err != nil {
+		t.Fatalf("MatchOrder: %v", err)
+	}
+
+	if gotMatch != wantMatch {
+		t.Fatalf("matchRawHex 不一致: goLen=%d jsLen=%d\n前 200 字符 go=%q\n前 200 字符 js=%q",
+			len(gotMatch), len(wantMatch), trimHexForLog(gotMatch, 200), trimHexForLog(wantMatch, 200))
+	}
+	t.Logf("matchRawHex 与 JS 完全一致（%d hex 字符）", len(gotMatch))
+}
+
+func trimHexForLog(s string, max int) string {
+	s = strings.TrimSpace(s)
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + "..."
 }
